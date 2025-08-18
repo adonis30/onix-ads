@@ -1,10 +1,9 @@
+// src/lib/authOptions.ts
 import CredentialsProvider from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
+import prisma from "./prisma";
 
-import type { AuthOptions } from "next-auth";
-import prisma from "@/lib/prisma";
-
-export const authOptions: AuthOptions = {
+export const authOptions = {
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -18,6 +17,7 @@ export const authOptions: AuthOptions = {
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
+
         if (!user) return null;
 
         const isValid = await compare(credentials.password, user.password!);
@@ -34,17 +34,17 @@ export const authOptions: AuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user }: any) {
       if (user) {
-        token.role = (user as any).role;
-        token.tenantId = (user as any).tenantId;
+        token.role = user.role;
+        token.tenantId = user.tenantId;
       }
       return token;
     },
-    async session({ session, token }) {
+    async session({ session, token }: any) {
       if (session.user) {
-        session.user.role = (token as any).role;
-        session.user.tenantId = (token as any).tenantId;
+        session.user.role = token.role;
+        session.user.tenantId = token.tenantId;
       }
       return session;
     },
