@@ -19,19 +19,13 @@ export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Normalize session for apiFetch
-  const normalizedSession = session
-    ? { user: { tenantId: session.user.tenantId ?? undefined, role: session.user.role } }
-    : undefined;
-
-  const tenantId = normalizedSession?.user?.tenantId ?? "";
-  const userRole = normalizedSession?.user?.role ?? "";
+  const tenantId = session?.user?.tenantId ?? "";
+  const userRole = session?.user?.role ?? "";
 
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch("/api/tenants/users", { method: "GET" }, normalizedSession);
-      if (!res.ok) throw new Error("Failed to fetch users");
+      const res = await apiFetch("/api/tenants/users", { method: "GET" }, session);
       const data = await res.json();
       setUsers(data);
     } catch (err) {
@@ -61,7 +55,7 @@ export default function UsersPage() {
         </p>
       </header>
 
-      {/* Create User Section */}
+      {/* Create User */}
       {userRole === "ADMIN" && (
         <div className="bg-gray-800 p-6 rounded-lg shadow hover:shadow-lg border border-gray-700 transition-shadow">
           <h2 className="text-xl font-semibold mb-4 text-white flex items-center gap-2">
@@ -99,7 +93,6 @@ export default function UsersPage() {
               </div>
 
               <div className="flex items-center justify-between gap-2">
-                {/* Role Selector */}
                 <div className="flex items-center gap-2">
                   <Shield className="w-4 h-4 text-gray-500" />
                   <select
@@ -107,16 +100,10 @@ export default function UsersPage() {
                     onChange={async (e) => {
                       const newRole = e.target.value;
                       try {
-                        const res = await fetch(`/api/tenants/users/${user.id}`, {
+                        await apiFetch(`/api/tenants/users/${user.id}`, {
                           method: "PATCH",
-                          headers: {
-                            "Content-Type": "application/json",
-                            "x-tenant-id": tenantId,
-                            "x-user-role": "ADMIN",
-                          },
                           body: JSON.stringify({ role: newRole }),
-                        });
-                        if (!res.ok) throw new Error("Failed to update role");
+                        }, session);
                         fetchUsers();
                       } catch (err) {
                         console.error(err);
@@ -130,19 +117,11 @@ export default function UsersPage() {
                   </select>
                 </div>
 
-                {/* Delete Button */}
                 <button
                   onClick={async () => {
                     if (!confirm(`Delete user ${user.name}?`)) return;
                     try {
-                      const res = await fetch(`/api/users/${user.id}`, {
-                        method: "DELETE",
-                        headers: {
-                          "x-tenant-id": tenantId,
-                          "x-user-role": "ADMIN",
-                        },
-                      });
-                      if (!res.ok) throw new Error("Failed to delete user");
+                      await apiFetch(`/api/users/${user.id}`, { method: "DELETE" }, session);
                       fetchUsers();
                     } catch (err) {
                       console.error(err);

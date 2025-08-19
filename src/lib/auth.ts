@@ -1,13 +1,13 @@
-// src/lib/auth.ts
 import { NextRequest } from "next/server";
 
 export function requireRole(req: NextRequest, allowedRoles: string[]) {
-  // Extract role from session, token, or header
   const role = req.headers.get("x-user-role");
+  const tenantId = req.headers.get("x-tenant-id");
 
-  if (!role || !allowedRoles.includes(role)) {
-    throw new Error("Unauthorized");
-  }
+  if (!tenantId) throw new Error("Tenant ID required");
+  if (!role || !allowedRoles.includes(role)) throw new Error("Unauthorized");
 
-  return true;
+  console.log(`Role: ${role}, Tenant ID: ${tenantId}`);
+
+  return { role, tenantId };
 }

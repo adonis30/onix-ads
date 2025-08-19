@@ -1,18 +1,38 @@
-// src/lib/api.ts
+import type { Session } from "next-auth";
+
 export async function apiFetch(
   url: string,
   options: RequestInit = {},
-  session?: { user?: { tenantId?: string; role?: string } }
-) {
-  const headers = {
+  session?: Session | null
+): Promise<Response> {
+  if (!session?.user?.tenantId) {
+    throw new Error("Tenant ID missing from session");
+  }
+
+  const method = options.method?.toUpperCase() ?? "GET";
+
+  const headers: HeadersInit = {
     ...(options.headers || {}),
-    "x-tenant-id": session?.user?.tenantId || "",
-    "x-user-role": session?.user?.role || "",
-    "Content-Type": "application/json",
+    "x-tenant-id": session.user.tenantId,
+    "x-user-role": session.user.role || "",
+    ...(method !== "GET" && method !== "DELETE"
+      ? { "Content-Type": "application/json" }
+      : {}),
   };
 
-  return fetch(url, {
+  console.log(`[apiFetch] ${method} ${url}`, { headers });
+
+  const res = await fetch(url, {
     ...options,
+    method,
     headers,
   });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error(`[apiFetch] Error ${res.status}:`, errorText);
+    throw new Error(errorText || "Request failed");
+  }
+
+  return res;
 }

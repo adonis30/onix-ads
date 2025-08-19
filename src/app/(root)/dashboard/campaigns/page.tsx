@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { apiFetch } from "@/lib/api";
 import { Plus, Rocket, Pause, CircleCheck, Pencil, Trash2 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+
 
 type Campaign = {
   id: string;
@@ -23,15 +24,10 @@ export default function CampaignsPage() {
   const [form, setForm] = useState({ name: "", description: "", isActive: true });
   const [saving, setSaving] = useState(false);
 
-  // Normalized session object for apiFetch
-  const normalizedSession = session
-    ? { user: { tenantId: session.user.tenantId ?? undefined, role: session.user.role } }
-    : undefined;
-
   async function load() {
+    console.log("user log", session?.user);
     try {
-      const res = await apiFetch("/api/tenants/campaigns", { method: "GET" }, normalizedSession);
-      if (!res.ok) throw new Error(await res.text());
+      const res = await apiFetch("/api/tenants/campaigns", {}, session);
       const data: Campaign[] = await res.json();
       setItems(data);
     } catch (e) {
@@ -49,16 +45,11 @@ export default function CampaignsPage() {
   async function createCampaign() {
     setSaving(true);
     try {
-      const res = await apiFetch(
-        "/api/tenants/campaigns",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        },
-        normalizedSession
-      );
-      if (!res.ok) throw new Error(await res.text());
+      await apiFetch("/api/tenants/campaigns", {
+        method: "POST",
+        body: JSON.stringify(form),
+      }, session);
+
       setOpen(false);
       setForm({ name: "", description: "", isActive: true });
       await load();
@@ -72,16 +63,11 @@ export default function CampaignsPage() {
 
   async function toggleActive(id: string, isActive: boolean) {
     try {
-      const res = await apiFetch(
-        `/api/tenants/campaigns/${id}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ isActive: !isActive }),
-        },
-        normalizedSession
-      );
-      if (!res.ok) throw new Error(await res.text());
+      await apiFetch(`/api/tenants/campaigns/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: !isActive }),
+      }, session);
+
       await load();
     } catch (e) {
       console.error(e);
@@ -92,8 +78,10 @@ export default function CampaignsPage() {
   async function remove(id: string) {
     if (!confirm("Delete this campaign?")) return;
     try {
-      const res = await apiFetch(`/api/tenants/campaigns/${id}`, { method: "DELETE" }, normalizedSession);
-      if (!res.ok) throw new Error(await res.text());
+      await apiFetch(`/api/tenants/campaigns/${id}`, {
+        method: "DELETE",
+      }, session);
+
       await load();
     } catch (e) {
       console.error(e);
