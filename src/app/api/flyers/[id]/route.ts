@@ -29,19 +29,34 @@ export async function PATCH(req: NextRequest, context: any) {
 }
 
 export async function DELETE(req: NextRequest, context: any) {
-  const session = await getServerSession(authOptions as AuthOptions);
+  const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const flyerId = context.params.id as string;
+     const { id: flyerId } = await context.params;
 
+    // Ensure flyer exists and belongs to tenant
+    const flyer = await prisma.flyer.findUnique({
+      where: { id: flyerId },
+    });
+
+    if (!flyer) {
+      return NextResponse.json({ error: "Flyer not found" }, { status: 404 });
+    }
+
+    // Optional: check if flyer belongs to tenant
+    if (flyer.tenantId !== session.user.tenantId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+
+    // Delete flyer (cascades to ShortLinks, QR codes, events, access rules)
     await prisma.flyer.delete({ where: { id: flyerId } });
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {
-    console.error(err);
+    console.error("DELETE flyer error:", err);
     return NextResponse.json({ error: "Failed to delete flyer" }, { status: 500 });
   }
 }

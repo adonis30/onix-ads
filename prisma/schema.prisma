@@ -142,8 +142,8 @@ model Flyer {
 
   tenant      Tenant       @relation(fields: [tenantId], references: [id])
   campaign    Campaign     @relation(fields: [campaignId], references: [id])
-  links       ShortLink[]
-  accessRules AccessRule[]
+  links       ShortLink[]  
+  accessRules AccessRule[] 
 }
 
 // ------------------ SHORT LINKS ------------------
@@ -157,10 +157,10 @@ model ShortLink {
   createdAt  DateTime  @default(now())
 
   tenant Tenant  @relation(fields: [tenantId], references: [id])
-  flyer  Flyer   @relation(fields: [flyerId], references: [id])
-  qr     QRCode?
+   flyer  Flyer   @relation(fields: [flyerId], references: [id], onDelete: Cascade)
+  qr     QRCode? 
 
-  events ShortLinkEvent[]
+  events ShortLinkEvent[] 
 }
 
 // ------------------ QR CODES ------------------
@@ -175,7 +175,7 @@ model QRCode {
   margin      Int?
   createdAt   DateTime @default(now())
 
-  shortLink ShortLink @relation(fields: [shortLinkId], references: [id])
+  shortLink ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
 }
 
 // ------------------ ACCESS RULES ------------------
@@ -205,9 +205,7 @@ model ShortLinkEvent {
   createdAt   DateTime           @default(now())
 
   tenant    Tenant    @relation(fields: [tenantId], references: [id])
-  shortLink ShortLink @relation(fields: [shortLinkId], references: [id])
-
-  @@index([shortLinkId, kind, createdAt])
+  shortLink ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
 }
 
 // ------------------ WEBHOOKS ------------------

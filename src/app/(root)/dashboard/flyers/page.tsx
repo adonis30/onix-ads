@@ -18,6 +18,8 @@ interface Flyer {
   height?: number | null;
   createdAt: string;
   campaign: { id: string; name: string };
+  qrCodeUrl?: string;
+  shortcode?: string;
 }
 
 interface CampaignGroup {
@@ -38,7 +40,7 @@ export default function FlyerDashboard() {
   // Setup pdf.js worker
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // @ts-ignore - version is available at runtime
+      // @ts-ignore
       pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
     }
   }, []);
@@ -60,14 +62,12 @@ export default function FlyerDashboard() {
   const campaigns = useMemo(
     () => [
       { id: "__all__", name: "All Campaigns" },
-      ...Array.from(
-        new Map(flyers.map((f) => [f.campaign.id, f.campaign])).values()
-      ),
+      ...Array.from(new Map(flyers.map((f) => [f.campaign.id, f.campaign])).values()),
     ],
     [flyers]
   );
 
-  // Apply campaign filter before grouping
+  // Filter flyers by selected campaign
   const filteredFlyers = useMemo(
     () =>
       selectedCampaignId === "__all__"
@@ -76,7 +76,7 @@ export default function FlyerDashboard() {
     [flyers, selectedCampaignId]
   );
 
-  // Generate thumbnails for PDFs (only once per flyer)
+  // Generate PDF thumbnails
   useEffect(() => {
     filteredFlyers.forEach(async (flyer) => {
       if (flyer.assetType === "PDF" && !pdfThumbnails[flyer.id]) {
@@ -93,10 +93,7 @@ export default function FlyerDashboard() {
           canvas.height = viewport.height;
           const ctx = canvas.getContext("2d")!;
           await page.render({ canvasContext: ctx, canvas, viewport }).promise;
-          setPdfThumbnails((prev) => ({
-            ...prev,
-            [flyer.id]: canvas.toDataURL(),
-          }));
+          setPdfThumbnails((prev) => ({ ...prev, [flyer.id]: canvas.toDataURL() }));
         } catch (err) {
           console.error("PDF thumbnail error:", err);
         } finally {
@@ -104,8 +101,6 @@ export default function FlyerDashboard() {
         }
       }
     });
-    // We intentionally *don't* depend on pdfThumbnails to avoid retriggering for already-rendered items
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredFlyers]);
 
   const formatBytes = (bytes: number) => {
@@ -114,43 +109,43 @@ export default function FlyerDashboard() {
     const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-    };
+  };
 
   const handlePreview = (flyer: Flyer) => {
     window.open(flyer.cdnUrl || flyer.originalUrl, "_blank", "noopener,noreferrer");
   };
 
-const handleDelete = async (flyerId: string) => {
-  if (!confirm("Are you sure you want to delete this flyer?")) return;
-
-  try {
-    const res = await fetch(`/api/flyers/${flyerId}`, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || "Delete failed");
+  const handleDelete = async (flyerId: string) => {
+    if (!confirm("Are you sure you want to delete this flyer?")) return;
+    try {
+      const res = await fetch(`/api/flyers/${flyerId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Delete failed");
+      fetchFlyers();
+      setFlyers((prev) => prev.filter((f) => f.id !== flyerId));
+    } catch (err) {
+      console.error(err);
+      alert("Error deleting flyer: " + (err instanceof Error ? err.message : ""));
     }
+  };
 
-    alert("Flyer deleted successfully");
+  const handleDownloadQRCode = (flyer: Flyer) => {
+    if (!flyer.qrCodeUrl) return;
+    const link = document.createElement("a");
+    link.href = flyer.qrCodeUrl;
+    link.download = `${flyer.title}-QR.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-    // Refetch flyers to update state
-    fetchFlyers();
+  const handleCopyShortcode = (flyer: Flyer) => {
+    if (!flyer.shortcode) return;
+    navigator.clipboard.writeText(flyer.shortcode);
+    alert(`Shortcode copied: ${flyer.shortcode}`);
+  };
 
-    // Remove deleted flyer from state
-    setFlyers((prev) => prev.filter((f) => f.id !== flyerId));
-    
-  } catch (err) {
-    console.error(err);
-    alert("Error deleting flyer: " + (err instanceof Error ? err.message : ""));
-  }
-};
-
+  // Group flyers by campaign
   const groupedFlyers: CampaignGroup[] = filteredFlyers.reduce(
     (acc: CampaignGroup[], flyer) => {
       const existing = acc.find((g) => g.campaignId === flyer.campaign.id);
@@ -167,23 +162,20 @@ const handleDelete = async (flyerId: string) => {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 p-6 bg-gray-900 min-h-screen">
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowForm(true)}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white"
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white font-medium transition"
           >
             Create New Flyer
           </button>
-
-          {/* Campaign filter */}
           <select
             value={selectedCampaignId}
             onChange={(e) => setSelectedCampaignId(e.target.value)}
             className="px-3 py-2 bg-gray-800 text-gray-100 rounded border border-gray-700"
-            aria-label="Filter by campaign"
           >
             {campaigns.map((c) => (
               <option key={c.id} value={c.id}>
@@ -193,29 +185,24 @@ const handleDelete = async (flyerId: string) => {
           </select>
         </div>
 
-        {/* View mode toggle */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => setViewMode("grid")}
-            className={`p-2 rounded ${
+            className={`p-2 rounded transition ${
               viewMode === "grid"
                 ? "bg-gray-700 text-white"
                 : "bg-gray-800 text-gray-400 hover:text-white"
             }`}
-            aria-label="Grid view"
-            title="Grid view"
           >
             <FaTh />
           </button>
           <button
             onClick={() => setViewMode("list")}
-            className={`p-2 rounded ${
+            className={`p-2 rounded transition ${
               viewMode === "list"
                 ? "bg-gray-700 text-white"
                 : "bg-gray-800 text-gray-400 hover:text-white"
             }`}
-            aria-label="List view"
-            title="List view"
           >
             <FaList />
           </button>
@@ -244,7 +231,6 @@ const handleDelete = async (flyerId: string) => {
               <button
                 onClick={() => setShowForm(false)}
                 className="absolute top-2 right-2 text-gray-300 hover:text-white text-xl font-bold"
-                aria-label="Close"
               >
                 &times;
               </button>
@@ -270,35 +256,30 @@ const handleDelete = async (flyerId: string) => {
         </p>
       ) : (
         groupedFlyers.map((group) => (
-          <div key={group.campaignId}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-100">
-                Campaign: {group.campaignName}
-              </h2>
+          <div key={group.campaignId} className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-white">{group.campaignName}</h2>
               <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">
                 {group.flyers.length} item{group.flyers.length === 1 ? "" : "s"}
               </span>
             </div>
 
             {viewMode === "grid" ? (
-              // --- GRID VIEW ---
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {group.flyers.map((flyer) => (
                   <div
                     key={flyer.id}
-                    className="bg-gray-800 rounded-lg shadow hover:shadow-xl transition overflow-hidden group relative"
+                    className="bg-gray-900 rounded-lg shadow-lg hover:shadow-2xl transition transform hover:-translate-y-1 overflow-hidden group relative"
                   >
-                    {/* Thumbnail */}
-                    <div className="relative w-full h-40 bg-gray-700">
+                    {/* Media */}
+                    <div className="relative w-full h-48 bg-gray-700">
                       {flyer.assetType === "IMAGE" && (
                         <img
                           src={flyer.cdnUrl || flyer.originalUrl}
                           alt={flyer.title}
                           className="w-full h-full object-cover"
-                          loading="lazy"
                         />
                       )}
-
                       {flyer.assetType === "VIDEO" && (
                         <>
                           <video
@@ -308,12 +289,11 @@ const handleDelete = async (flyerId: string) => {
                             loop
                             playsInline
                           />
-                          <div className="absolute inset-0 flex items-center justify-center text-white text-3xl">
+                          <div className="absolute inset-0 flex items-center justify-center text-white text-4xl bg-black/20 rounded">
                             <FaPlay />
                           </div>
                         </>
                       )}
-
                       {flyer.assetType === "PDF" && (
                         <>
                           {pdfThumbnails[flyer.id] ? (
@@ -321,15 +301,14 @@ const handleDelete = async (flyerId: string) => {
                               src={pdfThumbnails[flyer.id]}
                               alt="PDF thumbnail"
                               className="w-full h-full object-cover"
-                              loading="lazy"
                             />
                           ) : (
                             <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-200">
-                              <div className="animate-spin mb-2 border-4 border-t-blue-600 border-gray-400 w-8 h-8 rounded-full"></div>
+                              <div className="animate-spin mb-2 border-4 border-t-blue-600 border-gray-400 w-10 h-10 rounded-full"></div>
                               Loading PDF...
                             </div>
                           )}
-                          <div className="absolute top-2 left-2 text-white bg-red-600 px-1 rounded flex items-center gap-1">
+                          <div className="absolute top-2 left-2 text-white bg-red-600 px-2 py-1 rounded flex items-center gap-1 font-semibold">
                             <FaFilePdf /> PDF
                           </div>
                         </>
@@ -337,29 +316,57 @@ const handleDelete = async (flyerId: string) => {
                     </div>
 
                     {/* Info */}
-                    <div className="p-4">
+                    <div className="p-4 space-y-2">
                       <p className="font-semibold text-white truncate">{flyer.title}</p>
                       <p className="text-gray-300 text-sm truncate">{flyer.description}</p>
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          onClick={() => handlePreview(flyer)}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm flex-1"
-                        >
-                          Preview
-                        </button>
-                        <button
-                          onClick={() => handleDelete(flyer.id)}
-                          className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm flex-1"
-                        >
-                          Delete
-                        </button>
+
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handlePreview(flyer)}
+                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm flex-1"
+                          >
+                            Preview
+                          </button>
+                          <button
+                            onClick={() => handleDelete(flyer.id)}
+                            className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm flex-1"
+                          >
+                            Delete
+                          </button>
+                        </div>
+
+                        {flyer.qrCodeUrl && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <img
+                              src={flyer.qrCodeUrl}
+                              alt="QR code"
+                              className="w-16 h-16 object-contain border border-gray-600 rounded"
+                            />
+                            <div className="flex flex-col gap-1">
+                              <button
+                                onClick={() => handleDownloadQRCode(flyer)}
+                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
+                              >
+                                Download QR
+                              </button>
+                              {flyer.shortcode && (
+                                <button
+                                  onClick={() => handleCopyShortcode(flyer)}
+                                  className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+                                >
+                                  Copy Shortcode
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              // --- LIST VIEW ---
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left border border-gray-700 text-gray-300">
                   <thead className="bg-gray-800 text-gray-200">
@@ -375,55 +382,50 @@ const handleDelete = async (flyerId: string) => {
                   </thead>
                   <tbody>
                     {group.flyers.map((flyer) => (
-                      <tr
-                        key={flyer.id}
-                        className="border-t border-gray-700 hover:bg-gray-800"
-                      >
-                        <td className="px-4 py-2">
+                      <tr key={flyer.id} className="border-t border-gray-700 hover:bg-gray-800">
+                        <td className="px-2 py-2">
                           {flyer.assetType === "IMAGE" && (
                             <img
                               src={flyer.cdnUrl || flyer.originalUrl}
                               alt={flyer.title}
-                              className="w-16 h-16 object-cover rounded"
-                              loading="lazy"
+                              className="w-20 h-12 object-cover rounded"
                             />
                           )}
                           {flyer.assetType === "VIDEO" && (
-                            <video
-                              src={flyer.cdnUrl || flyer.originalUrl}
-                              className="w-16 h-16 object-cover rounded"
-                              muted
+                            <div className="relative w-20 h-12 bg-gray-700 rounded">
+                              <video
+                                src={flyer.cdnUrl || flyer.originalUrl}
+                                muted
+                                loop
+                                playsInline
+                                className="w-full h-full object-cover rounded"
+                              />
+                              <FaPlay className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white" />
+                            </div>
+                          )}
+                          {flyer.assetType === "PDF" && (
+                            <img
+                              src={pdfThumbnails[flyer.id] || ""}
+                              alt="PDF"
+                              className="w-20 h-12 object-cover rounded"
                             />
                           )}
-                          {flyer.assetType === "PDF" &&
-                            (pdfThumbnails[flyer.id] ? (
-                              <img
-                                src={pdfThumbnails[flyer.id]}
-                                alt="PDF thumbnail"
-                                className="w-16 h-16 object-cover rounded"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <span className="text-xs">Loading...</span>
-                            ))}
                         </td>
                         <td className="px-4 py-2">{flyer.title}</td>
                         <td className="px-4 py-2">{flyer.description}</td>
                         <td className="px-4 py-2">{flyer.assetType}</td>
                         <td className="px-4 py-2">{formatBytes(flyer.sizeBytes)}</td>
-                        <td className="px-4 py-2">
-                          {new Date(flyer.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2 flex gap-2">
+                        <td className="px-4 py-2">{new Date(flyer.createdAt).toLocaleDateString()}</td>
+                        <td className="px-4 py-2 space-x-1">
                           <button
                             onClick={() => handlePreview(flyer)}
-                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
+                            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
                           >
                             Preview
                           </button>
                           <button
                             onClick={() => handleDelete(flyer.id)}
-                            className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
+                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
                           >
                             Delete
                           </button>

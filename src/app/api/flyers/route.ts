@@ -19,10 +19,27 @@ export async function GET(req: NextRequest) {
   try {
     const flyers = await prisma.flyer.findMany({
       where: { tenantId: session.user.tenantId },
-      include: { campaign: true },
+      include: {
+        campaign: true,
+        links: {
+          include: { qr: true }, // include QR codes via short links
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json(flyers, { status: 200 });
+
+    // Flatten QR info onto each flyer
+    const flyersWithQr = flyers.map((f) => {
+      const qr = f.links[0]?.qr; // assuming 1 shortLink per flyer
+      const shortLink = f.links[0]?.slug;
+      return {
+        ...f,
+        qrCodeUrl: qr?.imageUrl ?? null,
+        shortcode: shortLink ?? null,
+      };
+    });
+
+    return NextResponse.json(flyersWithQr, { status: 200 });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Failed to fetch flyers" }, { status: 500 });
@@ -32,7 +49,8 @@ export async function GET(req: NextRequest) {
 // POST: create new flyers
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const formData = await req.formData();
@@ -45,7 +63,10 @@ export async function POST(req: NextRequest) {
       where: { id: campaignId, tenantId: session.user.tenantId },
     });
     if (!campaign)
-      return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Campaign not found" },
+        { status: 404 }
+      );
 
     const files: File[] = [];
     for (const entry of formData.entries()) {
@@ -59,8 +80,14 @@ export async function POST(req: NextRequest) {
         const buffer = Buffer.from(await file.arrayBuffer());
 
         // Save file under tenant folder
-        const tenantDir = path.join(process.cwd(), "public", "uploads", session.user.tenantId);
-        if (!fs.existsSync(tenantDir)) fs.mkdirSync(tenantDir, { recursive: true });
+        const tenantDir = path.join(
+          process.cwd(),
+          "public",
+          "uploads",
+          session.user.tenantId
+        );
+        if (!fs.existsSync(tenantDir))
+          fs.mkdirSync(tenantDir, { recursive: true });
         const filePath = path.join(tenantDir, file.name);
         fs.writeFileSync(filePath, buffer);
 
@@ -109,10 +136,17 @@ export async function POST(req: NextRequest) {
         const qrDir = path.join(process.cwd(), "public", "qrcodes");
         if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir, { recursive: true });
         const qrPath = path.join(qrDir, `${slug}.png`);
-        await QRCode.toFile(qrPath, shortUrl, { color: { dark: "#000", light: "#fff" }, width: 300 });
+        await QRCode.toFile(qrPath, shortUrl, {
+          color: { dark: "#000", light: "#fff" },
+          width: 300,
+        });
 
         const qr = await prisma.qRCode.create({
-          data: { shortLinkId: shortLink.id, format: "PNG", imageUrl: `/qrcodes/${slug}.png` },
+          data: {
+            shortLinkId: shortLink.id,
+            format: "PNG",
+            imageUrl: `/qrcodes/${slug}.png`,
+          },
         });
 
         return { ...flyer, shortLink, qr };
@@ -129,7 +163,8 @@ export async function POST(req: NextRequest) {
 // DELETE: delete flyer by ID
 export async function DELETE(req: NextRequest, context: any) {
   const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const flyerId = context.params.id as string;
@@ -137,7 +172,10 @@ export async function DELETE(req: NextRequest, context: any) {
     // Ensure flyer belongs to tenant
     const flyer = await prisma.flyer.findUnique({ where: { id: flyerId } });
     if (!flyer || flyer.tenantId !== session.user.tenantId)
-      return NextResponse.json({ error: "Not found or unauthorized" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Not found or unauthorized" },
+        { status: 404 }
+      );
 
     await prisma.flyer.delete({ where: { id: flyerId } });
     return NextResponse.json({ success: true }, { status: 200 });
