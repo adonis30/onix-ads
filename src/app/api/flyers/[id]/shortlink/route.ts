@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import QRCode from "qrcode";
 
-const APP_DOMAIN = "http://localhost:3000"; // replace when deployed
+const APP_DOMAIN = process.env.APP_BASE_URL!;
 
 export async function POST(req: NextRequest, context: any) {
   const flyerId = context.params.id as string;
