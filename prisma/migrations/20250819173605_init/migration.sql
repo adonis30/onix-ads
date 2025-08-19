@@ -5,7 +5,7 @@ CREATE TYPE "public"."Role" AS ENUM ('OWNER', 'ADMIN', 'EDITOR', 'VIEWER');
 CREATE TYPE "public"."Plan" AS ENUM ('FREE', 'STARTUP', 'PRO', 'ENTERPRISE');
 
 -- CreateEnum
-CREATE TYPE "public"."AssetType" AS ENUM ('IMAGE', 'PDF');
+CREATE TYPE "public"."AssetType" AS ENUM ('IMAGE', 'PDF', 'VIDEO');
 
 -- CreateEnum
 CREATE TYPE "public"."QRFormat" AS ENUM ('PNG', 'SVG');
@@ -21,6 +21,7 @@ CREATE TABLE "public"."Tenant" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
+    "planVariantId" INTEGER,
     "plan" "public"."Plan" NOT NULL DEFAULT 'FREE',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -37,9 +38,11 @@ CREATE TABLE "public"."Tenant" (
 -- CreateTable
 CREATE TABLE "public"."User" (
     "id" TEXT NOT NULL,
-    "email" TEXT NOT NULL,
     "name" TEXT,
-    "avatarUrl" TEXT,
+    "email" TEXT NOT NULL,
+    "role" TEXT NOT NULL DEFAULT 'USER',
+    "password" TEXT,
+    "tenantId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -186,6 +189,7 @@ CREATE TABLE "public"."AuditLog" (
 CREATE TABLE "public"."Subscription" (
     "id" TEXT NOT NULL,
     "tenantId" TEXT NOT NULL,
+    "providerId" TEXT NOT NULL,
     "stripeSubId" TEXT NOT NULL,
     "status" "public"."SubscriptionStatus" NOT NULL,
     "plan" "public"."Plan" NOT NULL,
@@ -223,7 +227,13 @@ CREATE INDEX "ShortLinkEvent_shortLinkId_kind_createdAt_idx" ON "public"."ShortL
 CREATE UNIQUE INDEX "ApiKey_hash_key" ON "public"."ApiKey"("hash");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Subscription_providerId_key" ON "public"."Subscription"("providerId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Subscription_stripeSubId_key" ON "public"."Subscription"("stripeSubId");
+
+-- AddForeignKey
+ALTER TABLE "public"."User" ADD CONSTRAINT "User_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "public"."Tenant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."Membership" ADD CONSTRAINT "Membership_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
