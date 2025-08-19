@@ -1,15 +1,11 @@
-// src/app/api/flyers/[id]/shortlink/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import QRCode from "qrcode";
 
 const APP_DOMAIN = "http://localhost:3000"; // replace when deployed
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const flyerId = params.id;
+export async function POST(req: NextRequest, context: any) {
+  const flyerId = context.params.id as string;
 
   try {
     // Generate a unique slug

@@ -15,7 +15,6 @@ type Campaign = {
 
 export default function CampaignsPage() {
   const { data: session, status } = useSession();
-  const tenantId = session?.user?.tenantId ?? "";
   const role = session?.user?.role ?? "";
 
   const [items, setItems] = useState<Campaign[]>([]);
@@ -24,9 +23,14 @@ export default function CampaignsPage() {
   const [form, setForm] = useState({ name: "", description: "", isActive: true });
   const [saving, setSaving] = useState(false);
 
+  // Normalized session object for apiFetch
+  const normalizedSession = session
+    ? { user: { tenantId: session.user.tenantId ?? undefined, role: session.user.role } }
+    : undefined;
+
   async function load() {
     try {
-      const res = await apiFetch("/api/tenants/campaigns", { method: "GET" }, session ?? undefined);
+      const res = await apiFetch("/api/tenants/campaigns", { method: "GET" }, normalizedSession);
       if (!res.ok) throw new Error(await res.text());
       const data: Campaign[] = await res.json();
       setItems(data);
@@ -52,7 +56,7 @@ export default function CampaignsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(form),
         },
-        session ?? undefined
+        normalizedSession
       );
       if (!res.ok) throw new Error(await res.text());
       setOpen(false);
@@ -75,7 +79,7 @@ export default function CampaignsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ isActive: !isActive }),
         },
-        session ?? undefined
+        normalizedSession
       );
       if (!res.ok) throw new Error(await res.text());
       await load();
@@ -88,7 +92,7 @@ export default function CampaignsPage() {
   async function remove(id: string) {
     if (!confirm("Delete this campaign?")) return;
     try {
-      const res = await apiFetch(`/api/tenants/campaigns/${id}`, { method: "DELETE" }, session ?? undefined);
+      const res = await apiFetch(`/api/tenants/campaigns/${id}`, { method: "DELETE" }, normalizedSession);
       if (!res.ok) throw new Error(await res.text());
       await load();
     } catch (e) {

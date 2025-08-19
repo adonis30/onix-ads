@@ -16,34 +16,37 @@ interface User {
 
 export default function UsersPage() {
   const { data: session, status } = useSession();
-  const tenantId = session?.user?.tenantId ?? "";
-  const userRole = session?.user?.role ?? "";
-
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (status === "authenticated" && session?.user?.tenantId && session?.user?.role) {
-      fetchUsers();
-    }
-  }, [status, session]);
+  // Normalize session for apiFetch
+  const normalizedSession = session
+    ? { user: { tenantId: session.user.tenantId ?? undefined, role: session.user.role } }
+    : undefined;
+
+  const tenantId = normalizedSession?.user?.tenantId ?? "";
+  const userRole = normalizedSession?.user?.role ?? "";
 
   const fetchUsers = async () => {
+    setLoading(true);
     try {
-      const res = await apiFetch("/api/tenants/users", { method: "GET" }, session ?? undefined);
+      const res = await apiFetch("/api/tenants/users", { method: "GET" }, normalizedSession);
       if (!res.ok) throw new Error("Failed to fetch users");
       const data = await res.json();
       setUsers(data);
     } catch (err) {
       console.error(err);
+      alert("Failed to fetch users");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (status === "authenticated") {
+      fetchUsers();
+    }
+  }, [status]);
 
   return (
     <div className="p-8 space-y-8 bg-gray-900 min-h-screen">

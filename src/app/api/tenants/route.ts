@@ -1,41 +1,39 @@
-// api/tenants/index.ts
+// src/app/api/tenants/route.ts
 import prisma from '@/lib/prisma';
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { NextRequest, NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
 
+export async function GET(req: NextRequest) {
+  const tenants = await prisma.tenant.findMany({
+    include: { subscriptions: true, users: true },
+  });
+  return NextResponse.json(tenants);
+}
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    if (req.method === 'GET') {
-      const tenants = await prisma.tenant.findMany({
-        include: { subscriptions: true, users: true },
-      });
-      return res.status(200).json(tenants);
-    }
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const { name, slug, plan, primaryColor, accentColor, logoUrl, domain } = body;
 
-    if (req.method === 'POST') {
-      const { name, slug, plan, primaryColor, accentColor, logoUrl, domain } = req.body;
-
-      const tenant = await prisma.tenant.create({
-        data: {
-          name,
-          slug,
+  const tenant = await prisma.tenant.create({
+    data: {
+      name,
+      slug,
+      plan,
+      primaryColor,
+      accentColor,
+      logoUrl,
+      domain,
+      subscriptions: {
+        create: [{
+          providerId: uuidv4(),
+          stripeSubId: uuidv4(),
           plan,
-          primaryColor,
-          accentColor,
-          logoUrl,
-          domain,
-          subscriptions: {
-            create: { plan, startDate: new Date(), status: 'ACTIVE' },
-          },
-        },
-      });
-      return res.status(201).json(tenant);
-    }
+          status: 'ACTIVE',
+          startDate: new Date(),
+        }],
+      },
+    },
+  });
 
-    res.setHeader('Allow', ['GET', 'POST']);
-    res.status(405).end(`Method ${req.method} Not Allowed`);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
+  return NextResponse.json(tenant, { status: 201 });
 }

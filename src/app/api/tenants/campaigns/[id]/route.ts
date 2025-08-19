@@ -10,14 +10,13 @@ function requireRoleAndTenant(req: NextRequest, allowedRoles: string[]) {
 }
 
 // GET single campaign
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(req: NextRequest, context: any) {
   try {
     const tenantId = requireRoleAndTenant(req, ["ADMIN", "USER"]);
+    const id = context.params.id as string;
+
     const campaign = await prisma.campaign.findFirst({
-      where: { id: params.id, tenantId },
+      where: { id, tenantId },
     });
     if (!campaign) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(campaign);
@@ -30,19 +29,17 @@ export async function GET(
 }
 
 // PATCH update (ADMIN only)
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(req: NextRequest, context: any) {
   try {
     const tenantId = requireRoleAndTenant(req, ["ADMIN"]);
+    const id = context.params.id as string;
     const body = await req.json();
     const { name, description, isActive } = body as {
       name?: string; description?: string; isActive?: boolean;
     };
 
     const updated = await prisma.campaign.updateMany({
-      where: { id: params.id, tenantId },
+      where: { id, tenantId },
       data: { name, description, isActive },
     });
 
@@ -60,18 +57,19 @@ export async function PATCH(
 }
 
 // DELETE (ADMIN only)
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, context: any) {
   try {
     const tenantId = requireRoleAndTenant(req, ["ADMIN"]);
+    const id = context.params.id as string;
+
     const deleted = await prisma.campaign.deleteMany({
-      where: { id: params.id, tenantId },
+      where: { id, tenantId },
     });
+
     if (deleted.count === 0) {
       return NextResponse.json({ error: "Not found or not in tenant" }, { status: 404 });
     }
+
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     const status =

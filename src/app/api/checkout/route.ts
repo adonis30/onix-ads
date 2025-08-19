@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createCheckout } from "@/lib/lemon";
 
+type LemonCheckoutResponse = {
+  url: string;
+  [key: string]: any; // any other fields returned by LemonSqueezy
+};
+
 export async function POST(req: NextRequest) {
   try {
     const { variantId, customerEmail, metadata } = await req.json();
@@ -31,28 +36,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "variantId must be a number" }, { status: 400 });
     }
 
-    const { data } = await createCheckout(
-      storeIdNum,
-      variantIdNum,
-      {
-        checkoutData: {
-          customerEmail,
+    // Create checkout
+    const { data } = (await createCheckout(storeIdNum, variantIdNum, {
+      checkoutData: {
+        email: customerEmail,
+        custom: {
+          redirect_success: `${appBaseUrl}/billing/success`,
+          redirect_cancel: `${appBaseUrl}/billing/cancel`,
           metadata,
         },
-        checkoutOptions: {
-          successUrl: `${appBaseUrl}/billing/success`,
-          cancelUrl: `${appBaseUrl}/billing/cancel`,
-        },
-        testMode: true,
-      }
-    );
+        variantQuantities: [{ variantId: variantIdNum, quantity: 1 }],
+      },
+      testMode: true,
+    })) as unknown as { data: LemonCheckoutResponse };
 
-    if (!data?.attributes?.checkout_url) {
+    // Ensure URL exists
+    if (!data?.url) {
       console.error("Checkout URL not found in response:", data);
       return NextResponse.json({ error: "Checkout URL not found" }, { status: 500 });
     }
 
-    return NextResponse.json({ checkoutUrl: data.attributes.checkout_url });
+    return NextResponse.json({ url: data.url });
   } catch (err: any) {
     console.error("Error in checkout route:", err);
     return NextResponse.json(

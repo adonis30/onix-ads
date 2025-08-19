@@ -1,4 +1,3 @@
-// src/app/api/users/[userId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
@@ -14,12 +13,13 @@ function requireRoleAndTenant(req: NextRequest, allowedRoles: string[]) {
 }
 
 // GET single user (ADMIN or USER)
-export async function GET(req: NextRequest, { params }: { params: { userId: string } }) {
+export async function GET(req: NextRequest, context: any) {
   try {
     const tenantId = requireRoleAndTenant(req, ["ADMIN", "USER"]);
+    const userId = context.params.userId; // access params here
 
     const user = await prisma.user.findFirst({
-      where: { id: params.userId, tenantId },
+      where: { id: userId, tenantId },
       include: { tenant: true },
     });
 
@@ -33,15 +33,16 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
 }
 
 // PUT / PATCH user (ADMIN only)
-export async function PUT(req: NextRequest, { params }: { params: { userId: string } }) {
+export async function PUT(req: NextRequest, context: any) {
   try {
     const tenantId = requireRoleAndTenant(req, ["ADMIN"]);
+    const userId = context.params.userId;
 
     const body = await req.json();
     const { name, email, role } = body;
 
     const updated = await prisma.user.updateMany({
-      where: { id: params.userId, tenantId },
+      where: { id: userId, tenantId },
       data: { name, email, role },
     });
 
@@ -57,12 +58,13 @@ export async function PUT(req: NextRequest, { params }: { params: { userId: stri
 }
 
 // DELETE user (ADMIN only)
-export async function DELETE(req: NextRequest, { params }: { params: { userId: string } }) {
+export async function DELETE(req: NextRequest, context: any) {
   try {
     const tenantId = requireRoleAndTenant(req, ["ADMIN"]);
+    const userId = context.params.userId;
 
     const deleted = await prisma.user.deleteMany({
-      where: { id: params.userId, tenantId },
+      where: { id: userId, tenantId },
     });
 
     if (deleted.count === 0)

@@ -1,7 +1,5 @@
-// src/app/api/flyers/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { AuthOptions } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import prisma from "@/lib/prisma";
 import fs from "fs";
@@ -15,7 +13,7 @@ export const config = { api: { bodyParser: false } };
 
 // GET: fetch all flyers for the tenant
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions as AuthOptions);
+  const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
@@ -33,7 +31,7 @@ export async function GET(req: NextRequest) {
 
 // POST: create new flyers
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions as AuthOptions);
+  const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
@@ -53,7 +51,6 @@ export async function POST(req: NextRequest) {
     for (const entry of formData.entries()) {
       if (entry[1] instanceof File && entry[0] === "file") files.push(entry[1]);
     }
-
     if (files.length === 0)
       return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
 
@@ -98,7 +95,7 @@ export async function POST(req: NextRequest) {
         // Generate ShortLink
         const slug = uuidv4().split("-")[0];
         const targetPath = `/flyers/${flyer.id}`;
-        const shortUrl = `${process.env.NEXT_PUBLIC_BASE_URL || " http://10.35.47.151:30"}/f/${slug}`;
+        const shortUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/f/${slug}`;
         const shortLink = await prisma.shortLink.create({
           data: {
             tenantId: session.user.tenantId,
@@ -130,12 +127,12 @@ export async function POST(req: NextRequest) {
 }
 
 // DELETE: delete flyer by ID
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions as AuthOptions);
+export async function DELETE(req: NextRequest, context: any) {
+  const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const flyerId = params.id;
+    const flyerId = context.params.id as string;
 
     // Ensure flyer belongs to tenant
     const flyer = await prisma.flyer.findUnique({ where: { id: flyerId } });
