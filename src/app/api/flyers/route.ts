@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
         // Generate ShortLink
         const slug = uuidv4().split("-")[0];
         const targetPath = `/flyers/${flyer.id}`;
-        const shortUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/f/${slug}`;
+        const shortUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/f/${slug}`;
         const shortLink = await prisma.shortLink.create({
           data: {
             tenantId: session.user.tenantId,
