@@ -170,8 +170,9 @@ export async function GET(req: NextRequest) {
         const qrKey = qr?.imageUrl?.replace(/^\//, "");
         const qrUrl = qrKey ? await getSignedUrlForKey(qrKey) : null;
 
-        // Shortcode
-        const shortcode = f.links[0]?.slug ?? null;
+        // Shortcode points to /f/:slug using APP_BASE_URL
+        const slug = f.links[0]?.slug ?? null;
+        const shortcode = slug ? `${process.env.APP_BASE_URL}/f/${slug}` : null;
 
         return {
           ...f,
