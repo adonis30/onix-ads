@@ -1,11 +1,10 @@
 {
-  "/(root)/dashboard/analytics/page": "app/(root)/dashboard/analytics/page.js",
-  "/(root)/dashboard/campaigns/page": "app/(root)/dashboard/campaigns/page.js",
   "/(root)/dashboard/flyers/page": "app/(root)/dashboard/flyers/page.js",
   "/(root)/dashboard/page": "app/(root)/dashboard/page.js",
   "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
   "/api/flyers/[id]/route": "app/api/flyers/[id]/route.js",
   "/api/flyers/route": "app/api/flyers/route.js",
   "/api/tenants/campaigns/route": "app/api/tenants/campaigns/route.js",
-  "/favicon.ico/route": "app/favicon.ico/route.js"
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/login/page": "app/login/page.js"
 }

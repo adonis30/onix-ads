@@ -35,10 +35,16 @@ export async function DELETE(req: NextRequest, context: any) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const flyerId = context.params.id as string;
+    // Await params before using
+    const { id: flyerId } = await context.params;
+
+    // Ensure flyer belongs to tenant
     const flyer = await prisma.flyer.findUnique({ where: { id: flyerId } });
     if (!flyer || flyer.tenantId !== session.user.tenantId)
-      return NextResponse.json({ error: "Not found or unauthorized" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Not found or unauthorized" },
+        { status: 404 }
+      );
 
     await prisma.flyer.delete({ where: { id: flyerId } });
     return NextResponse.json({ success: true }, { status: 200 });
