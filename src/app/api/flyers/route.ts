@@ -19,6 +19,8 @@ const s3 = new S3Client({
   },
 });
 
+
+
 async function uploadToS3(buffer: Buffer, key: string, mimeType: string) {
   await s3.send(
     new PutObjectCommand({
@@ -43,7 +45,8 @@ async function getSignedUrlForKey(key: string) {
 // POST: upload flyers and generate QR code pointing to flyer
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session) 
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const formData = await req.formData();
@@ -55,13 +58,18 @@ export async function POST(req: NextRequest) {
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, tenantId: session.user.tenantId },
     });
-    if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+    if (!campaign)
+      return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
     const files: File[] = [];
     for (const entry of formData.entries()) {
       if (entry[1] instanceof File && entry[0] === "file") files.push(entry[1]);
     }
-    if (!files.length) return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
+    if (!files.length) 
+      return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
+
+    const baseUrl = process.env.APP_BASE_URL;
+    if (!baseUrl) throw new Error("APP_BASE_URL is not defined");
 
     const createdFlyers = await Promise.all(
       files.map(async (file) => {
@@ -101,14 +109,17 @@ export async function POST(req: NextRequest) {
         // Generate ShortLink pointing to flyer
         const targetPath = `/flyers/${flyer.id}`;
         const slug = uuidv4().split("-")[0];
-        const shortUrl = `${process.env.NEXT_PUBLIC_BASE_URL}${targetPath}`; // points to flyer
+        const shortUrl = `${baseUrl}${targetPath}`; // <- points correctly
 
         const shortLink = await prisma.shortLink.create({
           data: { tenantId: session.user.tenantId, flyerId: flyer.id, slug, targetPath },
         });
 
         // Generate QR code buffer
-        const qrBuffer = await QRCode.toBuffer(shortUrl, { width: 300, color: { dark: "#000", light: "#fff" } });
+        const qrBuffer = await QRCode.toBuffer(shortUrl, { 
+          width: 300, 
+          color: { dark: "#000", light: "#fff" } 
+        });
         const qrKey = `${session.user.tenantId}/qrcodes/${slug}.png`;
 
         // Upload QR code to S3
