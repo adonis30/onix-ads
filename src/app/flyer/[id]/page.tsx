@@ -1,142 +1,183 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { motion } from "framer-motion";
+import { Copy, Download, Link2, Eye, QrCode } from "lucide-react";
 
-type QRData = {
-  id: string;
-  imageUrl: string;
-};
-
-type LinkData = {
-  id: string;
-  slug: string;
-  qr: QRData | null;
-};
-
+type QRData = { id: string; imageUrl: string; };
+type LinkData = { id: string; slug: string; qr: QRData | null; };
 type FlyerData = {
-  id: string;
-  title: string;
-  description?: string;
-  cdnUrl: string | null;
-  assetType: "IMAGE" | "VIDEO" | "PDF";
-  links: LinkData[];
+  id: string; title: string; description?: string;
+  cdnUrl: string | null; assetType: "IMAGE" | "VIDEO" | "PDF"; links: LinkData[];
 };
+type Metrics = { totals: { views: number; scans: number; downloads: number }; series: { kind: string; count: number }[] };
 
 export default function FlyerViewerPage() {
   const { id } = useParams();
   const [flyer, setFlyer] = useState<FlyerData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [copied, setCopied] = useState(false);
 
- 
+  const shortUrl = useMemo(() => {
+    if (!flyer?.id) return null;
+    return `${process.env.NEXT_PUBLIC_APP_BASE_URL || ""}/flyer/${flyer.id}`;
+  }, [flyer?.id]);
 
   useEffect(() => {
     if (!id) return;
 
-    async function fetchFlyer() {
+    (async () => {
       try {
         const res = await fetch(`/api/flyers/${id}`);
-        if (!res.ok)
-          throw new Error(`Failed to fetch flyer: ${res.statusText}`);
-
+        if (!res.ok) throw new Error("Failed to fetch flyer");
         const data: FlyerData = await res.json();
 
-        // Track view asynchronously
-        fetch(`/api/flyers/${id}/track`, { method: "POST" }).catch(
-          console.error
-        );
-
-       
-        
+        // Fire-and-forget view
+        fetch(`/api/flyers/${id}/track`, { method: "POST" }).catch(() => {});
         setFlyer(data);
-      } catch (err) {
-        console.error("Failed to load flyer", err);
+      } catch (e) {
+        console.error(e);
       } finally {
         setLoading(false);
       }
-    }
-
-    fetchFlyer();
+    })();
   }, [id]);
+
+  // Metrics: initial + refresh every 15s
+  useEffect(() => {
+    if (!id) return;
+    let timer: any;
+
+    const load = async () => {
+      try {
+        const r = await fetch(`/api/flyers/${id}/metrics`);
+        if (r.ok) setMetrics(await r.json());
+      } catch {}
+    };
+
+    load();
+    timer = setInterval(load, 15000);
+    return () => clearInterval(timer);
+  }, [id]);
+
+  const handleCopy = async () => {
+    if (!shortUrl) return;
+    await navigator.clipboard.writeText(shortUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+    // mark share/copy as a VIEW with source
+    fetch(`/api/flyers/${id}/event`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "VIEW", source: "copy" }),
+    }).catch(() => {});
+  };
+
+  const handleDownloadQR = () => {
+    fetch(`/api/flyers/${id}/event`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "DOWNLOAD", source: "qr-download" }),
+    }).catch(() => {});
+  };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
-        <p className="text-xl animate-pulse">Loading flyer...</p>
+      <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-800">
+        <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1.6 }} className="text-lg">
+          Loading flyer…
+        </motion.div>
       </div>
     );
   }
 
   if (!flyer) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
-        <p className="text-xl">Flyer not found.</p>
+      <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-800">
+        <p className="text-lg">Flyer not found.</p>
       </div>
     );
   }
 
   return (
-    <div className="w-full min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
-      <div className="max-w-6xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row">
-        {/* Flyer Asset */}
-        <div className="flex-1 bg-white flex items-center justify-center p-4">
+    <div className="w-full min-h-screen bg-gray-100 flex items-center justify-center p-6">
+      <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+        className="max-w-7xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-3">
+
+        {/* Preview */}
+        <div className="md:col-span-2 bg-gray-50 p-6 flex items-center justify-center">
           {flyer.assetType === "IMAGE" && flyer.cdnUrl && (
-            <img
-              src={flyer.cdnUrl}
-              alt="Flyer"
-              className="w-full h-full object-contain rounded-lg shadow"
-              onError={(e) =>
-                console.error("Failed to load image:", flyer.cdnUrl)
-              }
-            />
+            <motion.img whileHover={{ scale: 1.02 }} src={flyer.cdnUrl} alt="Flyer"
+              className="max-h-[78vh] w-full object-contain rounded-xl shadow" />
           )}
           {flyer.assetType === "PDF" && flyer.cdnUrl && (
-            <iframe
-              src={flyer.cdnUrl}
-              className="w-full h-full rounded-lg shadow"
-              onError={(e) =>
-                console.error("Failed to load image:", flyer.cdnUrl)
-              }
-            />
+            <iframe src={flyer.cdnUrl} className="w-full h-[78vh] rounded-xl shadow" />
           )}
           {flyer.assetType === "VIDEO" && flyer.cdnUrl && (
-            <video
-              src={flyer.cdnUrl}
-              controls
-              autoPlay
-              className="w-full h-full object-contain rounded-lg shadow"
-              onError={(e) =>
-                console.error("Failed to load image:", flyer.cdnUrl)
-              }
-            />
+            <video src={flyer.cdnUrl} controls className="max-h-[78vh] w-full object-contain rounded-xl shadow" />
           )}
         </div>
 
-        {/* QR Code / Info */}
-        <div className="w-full md:w-1/3 bg-gray-50 p-6 flex flex-col justify-between">
+        {/* Right rail */}
+        <div className="md:col-span-1 p-8 space-y-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">
-              {flyer.title}
-            </h1>
-            {flyer.description && (
-              <p className="text-gray-600 mb-6">{flyer.description}</p>
-            )}
-            {flyer.links.length > 0 && flyer.links[0].qr && (
-              <div className="flex flex-col items-center mt-4">
-                <p className="text-gray-700 mb-2">Scan QR Code:</p>
-                <img
-                  src={flyer.links[0].qr.imageUrl}
-                  alt="Flyer QR Code"
-                  className="w-40 h-40 object-contain rounded-md shadow-md"
-                />
-              </div>
-            )}
+            <h1 className="text-2xl font-bold text-gray-900">{flyer.title}</h1>
+            {flyer.description && <p className="text-gray-600 mt-2">{flyer.description}</p>}
           </div>
-          <p className="text-sm text-gray-400 mt-6 text-center md:text-left">
-            Powered by Onix-Ads
-          </p>
+
+          {/* QR & actions */}
+          {flyer.links[0]?.qr && (
+            <div className="border rounded-2xl p-4">
+              <p className="text-sm text-gray-700 mb-3 font-medium">Scan QR</p>
+              <img src={flyer.links[0].qr.imageUrl} alt="QR" className="w-40 h-40 object-contain rounded-lg shadow mx-auto" />
+              <div className="flex gap-3 mt-4">
+                {shortUrl && (
+                  <button
+                    onClick={handleCopy}
+                    className="flex-1 inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition"
+                  >
+                    <Link2 size={18} />
+                    {copied ? "Copied" : "Copy Link"}
+                  </button>
+                )}
+                <a
+                    href={flyer.links[0].qr.imageUrl}
+                    download
+                    onClick={handleDownloadQR}
+                    className="inline-flex items-center justify-center gap-2 bg-gray-200 text-gray-800 px-4 py-2 rounded-xl hover:bg-gray-300 transition"
+                >
+                  <Download size={18} />
+                  QR
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Metrics */}
+          <div className="border rounded-2xl p-4">
+            <p className="text-sm text-gray-700 mb-3 font-medium">Performance (last 30d)</p>
+            <div className="grid grid-cols-3 gap-3">
+              <MetricCard icon={<Eye size={18} />} label="Views" value={metrics?.totals.views ?? 0} />
+              <MetricCard icon={<QrCode size={18} />} label="Scans" value={metrics?.totals.scans ?? 0} />
+              <MetricCard icon={<Download size={18} />} label="Downloads" value={metrics?.totals.downloads ?? 0} />
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-400 text-center">Powered by Onix-Ads</p>
         </div>
-      </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function MetricCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+  return (
+    <div className="rounded-xl border p-3 flex flex-col items-center">
+      <div className="mb-1">{icon}</div>
+      <div className="text-lg font-semibold">{value}</div>
+      <div className="text-xs text-gray-500">{label}</div>
     </div>
   );
 }
