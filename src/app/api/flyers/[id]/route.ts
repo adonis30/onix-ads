@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { ShortLinkEventKind } from "@prisma/client";
 
 const s3 = new S3Client({
   region: process.env.S3_REGION,
@@ -32,8 +33,10 @@ async function deleteFromS3(key: string) {
   );
 }
 // -------------------- GET: Fetch Flyer by ID --------------------
+
+
+
 export async function GET(req: NextRequest, context: any) {
-  // Await params before using them
   const params = await context.params;
   const flyerId = params.id as string;
 
@@ -48,14 +51,15 @@ export async function GET(req: NextRequest, context: any) {
     // Track views
     await Promise.all(
       flyer.links.map(async (link) => {
+        const rawIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+        const ipHash = createHash("sha256").update(rawIp).digest("hex");
+
         await prisma.shortLinkEvent.create({
           data: {
             tenantId: flyer.tenantId,
             shortLinkId: link.id,
-            kind: "VIEW",
-            ipHash: createHash("sha256")
-              .update(req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown")
-              .digest("hex"),
+            kind: ShortLinkEventKind.VIEW,
+            ipHash,
             userAgent: req.headers.get("user-agent") ?? undefined,
             referrer: req.headers.get("referer") ?? undefined,
           },
@@ -68,9 +72,7 @@ export async function GET(req: NextRequest, context: any) {
     const signedLinks = await Promise.all(
       flyer.links.map(async (link) => ({
         ...link,
-        qr: link.qr
-          ? { ...link.qr, imageUrl: await getSignedUrlForKey(link.qr.imageUrl) }
-          : null,
+        qr: link.qr ? { ...link.qr, imageUrl: await getSignedUrlForKey(link.qr.imageUrl) } : null,
       }))
     );
 
@@ -89,7 +91,6 @@ export async function GET(req: NextRequest, context: any) {
     return NextResponse.json({ error: "Failed to fetch flyer" }, { status: 500 });
   }
 }
-
 
 // -------------------- PATCH: Update Flyer --------------------
 export async function PATCH(req: NextRequest, context: any) {
