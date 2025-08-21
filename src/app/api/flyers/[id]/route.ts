@@ -75,6 +75,7 @@ export async function GET(req: NextRequest, context: any) {
         qr: link.qr ? { ...link.qr, imageUrl: await getSignedUrlForKey(link.qr.imageUrl) } : null,
       }))
     );
+    
 
     return NextResponse.json(
       {

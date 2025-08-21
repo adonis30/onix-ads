@@ -1,33 +1,35 @@
-// src/app/api/f/[slug]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { ShortLinkEventKind } from "@prisma/client";
 import crypto from "node:crypto";
+import { getSignedUrlForKey } from "@/lib/s3Utils";
+
 
 export async function GET(req: NextRequest, context: any) {
-  // Await dynamic params
-  const params = await context.params;
+  const params = context.params;
   const slugArray = params.slug as string[];
   const slug = slugArray.join("/");
 
   try {
-    // Find short link and flyer
+    // Fetch the short link and related flyer
     const shortLink = await prisma.shortLink.findUnique({
       where: { slug },
-      include: { flyer: true },
+      include: { flyer: { include: { links: { include: { qr: true } } } } },
     });
 
     if (!shortLink || !shortLink.flyer) {
       return NextResponse.json({ error: "Short link or flyer not found" }, { status: 404 });
     }
 
-    // Log SCAN event
+    const flyer = shortLink.flyer;
+
+    // Log the SCAN event
     const rawIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
     const ipHash = crypto.createHash("sha256").update(rawIp).digest("hex");
 
     await prisma.shortLinkEvent.create({
       data: {
-        tenantId: shortLink.tenantId,
+        tenantId: flyer.tenantId,
         shortLinkId: shortLink.id,
         kind: ShortLinkEventKind.SCAN,
         ipHash,
@@ -36,11 +38,24 @@ export async function GET(req: NextRequest, context: any) {
       },
     });
 
-    // Build redirect URL to flyer GET endpoint
-    const redirectUrl = `${process.env.APP_BASE_URL}/api/flyers/${shortLink.flyer.id}`;
-     console.log(`[QR Short URL] Slug: ${slug} -> Redirecting to: ${redirectUrl}`);
+    // Generate signed URLs
+    const flyerKey = flyer.cdnUrl?.replace(/^\//, "");
+    const cdnUrl = flyerKey ? await getSignedUrlForKey(flyerKey) : null;
 
-    return NextResponse.redirect(redirectUrl);
+    const qr = flyer.links[0]?.qr;
+    const qrKey = qr?.imageUrl?.replace(/^\//, "");
+    const qrUrl = qrKey ? await getSignedUrlForKey(qrKey) : null;
+
+    // Return flyer data directly instead of redirecting
+    return NextResponse.json({
+      id: flyer.id,
+      title: flyer.title,
+      description: flyer.description,
+      assetType: flyer.assetType,
+      cdnUrl,
+      qrCodeUrl: qrUrl,
+    });
+
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Failed to resolve short link" }, { status: 500 });

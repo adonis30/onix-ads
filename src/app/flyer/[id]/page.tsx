@@ -28,32 +28,26 @@ export default function FlyerViewerPage() {
   const [flyer, setFlyer] = useState<FlyerData | null>(null);
   const [loading, setLoading] = useState(true);
 
+ 
+
   useEffect(() => {
     if (!id) return;
 
     async function fetchFlyer() {
       try {
-        console.log("Fetching flyer data for ID:", id);
         const res = await fetch(`/api/flyers/${id}`);
-        if (!res.ok) throw new Error(`Failed to fetch flyer: ${res.statusText}`);
+        if (!res.ok)
+          throw new Error(`Failed to fetch flyer: ${res.statusText}`);
 
         const data: FlyerData = await res.json();
-        console.log("Fetched flyer data:", data);
 
         // Track view asynchronously
-        fetch(`/api/flyers/${id}/track`, { method: "POST" }).catch(console.error);
+        fetch(`/api/flyers/${id}/track`, { method: "POST" }).catch(
+          console.error
+        );
 
-        // Normalize URLs to fix double slashes
-        if (data.cdnUrl) {
-          data.cdnUrl = data.cdnUrl.replace(/\/\//g, "/").replace("https:/", "https://");
-        }
-        data.links = data.links.map((link) => {
-          if (link.qr && link.qr.imageUrl) {
-            link.qr.imageUrl = link.qr.imageUrl.replace(/\/\//g, "/").replace("https:/", "https://");
-          }
-          return link;
-        });
-
+       
+        
         setFlyer(data);
       } catch (err) {
         console.error("Failed to load flyer", err);
@@ -91,12 +85,18 @@ export default function FlyerViewerPage() {
               src={flyer.cdnUrl}
               alt="Flyer"
               className="w-full h-full object-contain rounded-lg shadow"
+              onError={(e) =>
+                console.error("Failed to load image:", flyer.cdnUrl)
+              }
             />
           )}
           {flyer.assetType === "PDF" && flyer.cdnUrl && (
             <iframe
               src={flyer.cdnUrl}
               className="w-full h-full rounded-lg shadow"
+              onError={(e) =>
+                console.error("Failed to load image:", flyer.cdnUrl)
+              }
             />
           )}
           {flyer.assetType === "VIDEO" && flyer.cdnUrl && (
@@ -105,6 +105,9 @@ export default function FlyerViewerPage() {
               controls
               autoPlay
               className="w-full h-full object-contain rounded-lg shadow"
+              onError={(e) =>
+                console.error("Failed to load image:", flyer.cdnUrl)
+              }
             />
           )}
         </div>
@@ -112,7 +115,9 @@ export default function FlyerViewerPage() {
         {/* QR Code / Info */}
         <div className="w-full md:w-1/3 bg-gray-50 p-6 flex flex-col justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">{flyer.title}</h1>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              {flyer.title}
+            </h1>
             {flyer.description && (
               <p className="text-gray-600 mb-6">{flyer.description}</p>
             )}

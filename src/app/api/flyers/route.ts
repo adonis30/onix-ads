@@ -20,7 +20,7 @@ const s3 = new S3Client({
     secretAccessKey: process.env.S3_SECRET!,
   },
 });
-
+  
 
 
 async function uploadToS3(buffer: Buffer, key: string, mimeType: string) {
