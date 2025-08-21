@@ -117,30 +117,24 @@ export async function PATCH(req: NextRequest, context: any) {
 // -------------------- DELETE: Delete Flyer + S3 Files --------------------
 export async function DELETE(req: NextRequest, context: any) {
   const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { id: flyerId } = context.params;
+    const params = await context.params; // <-- await here
+    const flyerId = params.id as string;
 
-    const flyer = await prisma.flyer.findUnique({
-      where: { id: flyerId },
-      include: { links: { include: { qr: true } } },
-    });
-
+    const flyer = await prisma.flyer.findUnique({ where: { id: flyerId } });
     if (!flyer || flyer.tenantId !== session.user.tenantId)
       return NextResponse.json({ error: "Not found or unauthorized" }, { status: 404 });
 
-    // Delete flyer file from S3
-    if (flyer.cdnUrl) await deleteFromS3(flyer.cdnUrl.replace(/^\//, ""));
-
-    // Delete QR code files from S3
-    for (const link of flyer.links) {
-      if (link.qr?.imageUrl) await deleteFromS3(link.qr.imageUrl.replace(/^\//, ""));
+    // Delete file from S3
+    if (flyer.cdnUrl) {
+      const key = flyer.cdnUrl.replace(/^\//, "");
+      await s3.send(new DeleteObjectCommand({ Bucket: process.env.S3_BUCKET!, Key: key }));
     }
 
-    // Delete flyer record (cascades to shortLink & QR code)
     await prisma.flyer.delete({ where: { id: flyerId } });
-
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {
     console.error(err);
