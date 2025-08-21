@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
       files.map(async (file) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         const mimeType = file.type || "application/octet-stream";
-        const s3Key = `${session.user.tenantId}/flyers/${uuidv4()}-${file.name}`;
+        const s3Key = `${session.user.tenantId}/flyer/${uuidv4()}-${file.name}`;
 
         // Upload flyer to S3
         await uploadToS3(buffer, s3Key, mimeType);
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
         });
 
         // Generate ShortLink pointing directly to /app/flyers/:id
-        const targetPath = `/app/flyers/${flyer.id}`;
+        const targetPath = `/app/flyer/${flyer.id}`;
         const slug = uuidv4().split("-")[0]; // optional for uniqueness
 
         const shortLink = await prisma.shortLink.create({
@@ -171,7 +171,7 @@ export async function GET(req: NextRequest) {
         const qrUrl = qrKey ? await getSignedUrlForKey(qrKey) : null;
 
         const shortcode = f.links[0]?.slug
-          ? `${process.env.APP_BASE_URL}/app/flyers/${f.id}`
+          ? `${process.env.APP_BASE_URL}/app/flyer/${f.id}`
           : null;
 
         return { ...f, cdnUrl, qrCodeUrl: qrUrl, shortcode };
