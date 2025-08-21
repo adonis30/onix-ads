@@ -1,9 +1,9 @@
 {
-  "/(root)/dashboard/flyers/page": "app/(root)/dashboard/flyers/page.js",
   "/(root)/dashboard/page": "app/(root)/dashboard/page.js",
-  "/(root)/dashboard/users/page": "app/(root)/dashboard/users/page.js",
   "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
-  "/api/flyers/route": "app/api/flyers/route.js",
-  "/api/tenants/users/route": "app/api/tenants/users/route.js",
+  "/api/flyers/[id]/route": "app/api/flyers/[id]/route.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/flyer/[id]/page": "app/flyer/[id]/page.js",
+  "/flyer/page": "app/flyer/page.js",
   "/page": "app/page.js"
 }

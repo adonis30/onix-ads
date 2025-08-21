@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import crypto from "crypto";
+import { createHash } from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { ShortLinkEventKind } from "@prisma/client";
 
 const s3 = new S3Client({
   region: process.env.S3_REGION,
@@ -34,7 +33,9 @@ async function deleteFromS3(key: string) {
 }
 // -------------------- GET: Fetch Flyer by ID --------------------
 export async function GET(req: NextRequest, context: any) {
-  const flyerId = context.params.id as string;
+  // Await params before using them
+  const params = await context.params;
+  const flyerId = params.id as string;
 
   try {
     const flyer = await prisma.flyer.findUnique({
@@ -44,16 +45,15 @@ export async function GET(req: NextRequest, context: any) {
 
     if (!flyer) return NextResponse.json({ error: "Flyer not found" }, { status: 404 });
 
-    // Track each link's view
+    // Track views
     await Promise.all(
       flyer.links.map(async (link) => {
         await prisma.shortLinkEvent.create({
           data: {
             tenantId: flyer.tenantId,
             shortLinkId: link.id,
-            kind: ShortLinkEventKind.VIEW,
-            ipHash: crypto
-              .createHash("sha256")
+            kind: "VIEW",
+            ipHash: createHash("sha256")
               .update(req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown")
               .digest("hex"),
             userAgent: req.headers.get("user-agent") ?? undefined,
