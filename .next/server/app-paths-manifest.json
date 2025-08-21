@@ -3,6 +3,9 @@
   "/(root)/dashboard/page": "app/(root)/dashboard/page.js",
   "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
   "/api/flyers/[id]/route": "app/api/flyers/[id]/route.js",
+  "/api/flyers/[id]/track/route": "app/api/flyers/[id]/track/route.js",
   "/api/flyers/route": "app/api/flyers/route.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/flyer/[id]/page": "app/flyer/[id]/page.js",
   "/page": "app/page.js"
 }

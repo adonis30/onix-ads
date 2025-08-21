@@ -38,6 +38,7 @@ export async function GET(req: NextRequest, context: any) {
 
     // Build redirect URL to flyer GET endpoint
     const redirectUrl = `${process.env.APP_BASE_URL}/api/flyers/${shortLink.flyer.id}`;
+     console.log(`[QR Short URL] Slug: ${slug} -> Redirecting to: ${redirectUrl}`);
 
     return NextResponse.redirect(redirectUrl);
   } catch (err) {
