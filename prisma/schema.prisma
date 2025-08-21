@@ -133,6 +133,7 @@ model Flyer {
   assetType   AssetType
   originalUrl String
   cdnUrl      String?
+  s3Key       String?
   sizeBytes   Int
   width       Int?
   height      Int?

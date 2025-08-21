@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import QRCode from "qrcode";
+import { authOptions } from "@/lib/authOptions";
+import { getServerSession } from "next-auth";
 
 const APP_DOMAIN = process.env.APP_BASE_URL!;
 
 export async function POST(req: NextRequest, context: any) {
   const flyerId = context.params.id as string;
+    const session = await getServerSession(authOptions);
 
   try {
     // Generate a unique slug
@@ -20,7 +23,7 @@ export async function POST(req: NextRequest, context: any) {
     const shortLink = await prisma.shortLink.create({
       data: {
         flyerId,
-        tenantId: "tenant_placeholder", // replace with session user.tenantId if needed
+        tenantId: session.user.tenantId , // replace with session user.tenantId if needed
         slug,
         targetPath,
         qr: {

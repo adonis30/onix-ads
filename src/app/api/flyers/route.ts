@@ -1,3 +1,5 @@
+// src/app/api/flyers/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
@@ -42,11 +44,11 @@ async function getSignedUrlForKey(key: string) {
   return getSignedUrl(s3, command, { expiresIn: 3600 });
 }
 
-// POST: upload flyers and generate QR code pointing to flyer
+
+// ---------------- POST: Upload flyer + QR + ShortLink ----------------
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session) 
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const formData = await req.formData();
@@ -58,15 +60,13 @@ export async function POST(req: NextRequest) {
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, tenantId: session.user.tenantId },
     });
-    if (!campaign)
-      return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+    if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
     const files: File[] = [];
     for (const entry of formData.entries()) {
       if (entry[1] instanceof File && entry[0] === "file") files.push(entry[1]);
     }
-    if (!files.length) 
-      return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
+    if (!files.length) return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
 
     const baseUrl = process.env.APP_BASE_URL;
     if (!baseUrl) throw new Error("APP_BASE_URL is not defined");
@@ -75,10 +75,10 @@ export async function POST(req: NextRequest) {
       files.map(async (file) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         const mimeType = file.type || "application/octet-stream";
-        const key = `${session.user.tenantId}/flyers/${uuidv4()}-${file.name}`;
+        const s3Key = `${session.user.tenantId}/flyers/${uuidv4()}-${file.name}`;
 
         // Upload flyer to S3
-        await uploadToS3(buffer, key, mimeType);
+        await uploadToS3(buffer, s3Key, mimeType);
 
         let width: number | null = null;
         let height: number | null = null;
@@ -90,6 +90,7 @@ export async function POST(req: NextRequest) {
 
         const checksum = crypto.createHash("md5").update(buffer).digest("hex");
 
+        // Create flyer in DB
         const flyer = await prisma.flyer.create({
           data: {
             tenantId: session.user.tenantId,
@@ -97,32 +98,36 @@ export async function POST(req: NextRequest) {
             title,
             description,
             assetType: assetType as any,
-            originalUrl: `/${key}`,
-            cdnUrl: `/${key}`,
+            originalUrl: `/${s3Key}`,
+            cdnUrl: `/${s3Key}`,
             sizeBytes: buffer.length,
             width,
             height,
             checksum,
+       
           },
         });
 
-        // Generate ShortLink pointing to flyer
-        const targetPath = `/flyers/${flyer.id}`;
-        const slug = uuidv4().split("-")[0];
-        const shortUrl = `${baseUrl}${targetPath}`; // <- points correctly
+        // Generate ShortLink pointing directly to /app/flyers/:id
+        const targetPath = `/app/flyers/${flyer.id}`;
+        const slug = uuidv4().split("-")[0]; // optional for uniqueness
 
         const shortLink = await prisma.shortLink.create({
-          data: { tenantId: session.user.tenantId, flyerId: flyer.id, slug, targetPath },
+          data: {
+            tenantId: session.user.tenantId,
+            flyerId: flyer.id,
+            slug,
+            targetPath,
+          },
         });
 
-        // Generate QR code buffer
-        const qrBuffer = await QRCode.toBuffer(shortUrl, { 
-          width: 300, 
-          color: { dark: "#000", light: "#fff" } 
+        // Generate QR code
+        const qrBuffer = await QRCode.toBuffer(`${baseUrl}${targetPath}`, {
+          width: 300,
+          color: { dark: "#000", light: "#fff" },
         });
         const qrKey = `${session.user.tenantId}/qrcodes/${slug}.png`;
 
-        // Upload QR code to S3
         await uploadToS3(qrBuffer, qrKey, "image/png");
 
         const qr = await prisma.qRCode.create({
@@ -144,7 +149,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET: fetch all flyers for tenant with signed URLs for flyer and QR code
+// ---------------- GET: fetch all flyers with signed URLs ----------------
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -152,38 +157,28 @@ export async function GET(req: NextRequest) {
   try {
     const flyers = await prisma.flyer.findMany({
       where: { tenantId: session.user.tenantId },
-      include: {
-        campaign: true,
-        links: { include: { qr: true } },
-      },
+      include: { links: { include: { qr: true } }, campaign: true },
       orderBy: { createdAt: "desc" },
     });
 
-    const flyersWithSignedUrls = await Promise.all(
+    const result = await Promise.all(
       flyers.map(async (f) => {
-        // Signed URL for flyer
         const flyerKey = f.cdnUrl?.replace(/^\//, "");
         const cdnUrl = flyerKey ? await getSignedUrlForKey(flyerKey) : null;
 
-        // Signed URL for QR code
         const qr = f.links[0]?.qr;
         const qrKey = qr?.imageUrl?.replace(/^\//, "");
         const qrUrl = qrKey ? await getSignedUrlForKey(qrKey) : null;
 
-        // Shortcode points to /f/:slug using APP_BASE_URL
-        const slug = f.links[0]?.slug ?? null;
-        const shortcode = slug ? `${process.env.APP_BASE_URL}/f/${slug}` : null;
+        const shortcode = f.links[0]?.slug
+          ? `${process.env.APP_BASE_URL}/app/flyers/${f.id}`
+          : null;
 
-        return {
-          ...f,
-          cdnUrl,
-          qrCodeUrl: qrUrl,
-          shortcode,
-        };
+        return { ...f, cdnUrl, qrCodeUrl: qrUrl, shortcode };
       })
     );
 
-    return NextResponse.json(flyersWithSignedUrls, { status: 200 });
+    return NextResponse.json(result, { status: 200 });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Failed to fetch flyers" }, { status: 500 });
