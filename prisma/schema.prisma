@@ -38,6 +38,13 @@ enum ShortLinkEventKind {
   SCAN
   VIEW
   DOWNLOAD
+  SHARE
+  CLICK
+  SUBSCRIBE 
+  FEEDBACK   
+  BUY
+          
+
 }
 
 enum SubscriptionStatus {
@@ -77,6 +84,9 @@ model Tenant {
   apiKeys         ApiKey[]
   subscriptions   Subscription[]
   User            User[]
+
+  subscribers     Subscriber[]
+  feedbacks       Feedback[]
 }
 
 // ------------------ USERS & MEMBERSHIPS ------------------
@@ -116,6 +126,10 @@ model Campaign {
   name        String
   description String?
   isActive    Boolean  @default(true)
+  isPaid      Boolean  @default(false)   // <--- add this
+  priceCents  Int?                         // <--- optional pricing
+  currency    String?                      // <--- e.g., "USD"
+  buyLink     String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -145,6 +159,9 @@ model Flyer {
   campaign    Campaign     @relation(fields: [campaignId], references: [id])
   links       ShortLink[]  
   accessRules AccessRule[] 
+
+  subscribers Subscriber[]
+  feedbacks   Feedback[]
 }
 
 // ------------------ SHORT LINKS ------------------
@@ -207,6 +224,8 @@ model ShortLinkEvent {
 
   tenant    Tenant    @relation(fields: [tenantId], references: [id])
   shortLink ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
+
+  @@unique([shortLinkId, kind, ipHash, userAgent])
 }
 
 // ------------------ WEBHOOKS ------------------
@@ -258,4 +277,28 @@ model Subscription {
   endDate     DateTime?
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
+model Subscriber {
+  id         String   @id @default(cuid())
+  tenantId   String
+  flyerId    String
+  email      String
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  flyer  Flyer  @relation(fields: [flyerId], references: [id])
+}
+
+model Feedback {
+  id         String   @id @default(cuid())
+  tenantId   String
+  flyerId    String
+  rating     Int      // 1..5
+  comment    String?
+  email      String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  flyer  Flyer  @relation(fields: [flyerId], references: [id])
 }

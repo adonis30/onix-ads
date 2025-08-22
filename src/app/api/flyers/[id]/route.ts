@@ -6,40 +6,49 @@ import { createHash } from "crypto";
 import { getServerSession } from "next-auth/next";
 import { getSignedUrlForKey } from "@/lib/s3Utils";
 
-export async function GET(req: NextRequest, context: any ) {
-  const params = await context.params;
-  const flyerId = params.id as string;
+export async function GET(req: NextRequest, context: any) {
+  const { id } = await context.params;
 
   try {
     const flyer = await prisma.flyer.findUnique({
-      where: { id: flyerId },
-      include: { links: { include: { qr: true } } },
+      where: { id },
+      include: {
+        campaign: { select: { isPaid: true, buyLink: true, name: true } },
+        links: { include: { qr: true } },
+      },
     });
-
     if (!flyer) return NextResponse.json({ error: "Flyer not found" }, { status: 404 });
 
-    // Normalize the S3 keys to remove any leading slashes
-    const flyerKey = flyer.cdnUrl?.replace(/^\/+/, "");
-    const cdnUrl = flyerKey ? await getSignedUrlForKey(flyerKey) : null;
+    // Normalize keys -> signed URLs
+    const flyerKey = flyer.cdnUrl?.replace(/^\//, "");
+    const assetUrl = flyerKey ? await getSignedUrlForKey(flyerKey) : flyer.originalUrl;
 
-    const qr = flyer.links[0]?.qr;
-    const qrKey = qr?.imageUrl?.replace(/^\/+/, "");
-    const qrUrl = qrKey ? await getSignedUrlForKey(qrKey) : null;
+    const links = await Promise.all(
+      flyer.links.map(async (l) => {
+        const qrKey = l.qr?.imageUrl?.replace(/^\//, "");
+        const qrUrl = qrKey ? await getSignedUrlForKey(qrKey) : null;
+        return { ...l, qr: l.qr ? { ...l.qr, imageUrl: qrUrl } : null };
+      })
+    );
 
-    return NextResponse.json({
-      id: flyer.id,
-      title: flyer.title,
-      description: flyer.description,
-      assetType: flyer.assetType,
-      cdnUrl,
-      links: flyer.links.map((link) => ({
-        id: link.id,
-        slug: link.slug,
-        qr: link.qr ? { ...link.qr, imageUrl: qrUrl } : null,
-      })),
-    });
-  } catch (err) {
-    console.error("Failed to fetch flyer:", err);
+    return NextResponse.json(
+      {
+        id: flyer.id,
+        title: flyer.title,
+        description: flyer.description,
+        assetType: flyer.assetType,
+        cdnUrl: assetUrl,
+        links,
+        campaign: {
+          name: flyer.campaign?.name ?? flyer.title,
+          isPaid: flyer.campaign?.isPaid ?? false,
+          buyLink: flyer.campaign?.buyLink ?? null,
+        },
+      },
+      { status: 200 }
+    );
+  } catch (e) {
+    console.error(e);
     return NextResponse.json({ error: "Failed to fetch flyer" }, { status: 500 });
   }
 }
