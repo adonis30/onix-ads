@@ -13,7 +13,7 @@ export default async function Home() {
   // Redirect based on role
   switch (session.user.role) {
     case "SUPER_ADMIN":
-      redirect("/super/admin");
+      redirect("/admin");
       break; // prevent fall-through
     case "TENANT_ADMIN":
     case "EDITOR":
