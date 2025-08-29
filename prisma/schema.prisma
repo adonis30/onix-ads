@@ -1,0 +1,378 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------ ENUMS ------------------
+enum UserRole {
+  SUPER_ADMIN
+  TENANT_ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum Plan {
+  FREE
+  STARTUP
+  PRO
+  ENTERPRISE
+}
+
+enum AssetType {
+  IMAGE
+  PDF
+  VIDEO
+}
+
+enum QRFormat {
+  PNG
+  SVG
+}
+
+enum ShortLinkEventKind {
+  SCAN
+  VIEW
+  DOWNLOAD
+  SHARE
+  CLICK
+  SUBSCRIBE
+  FEEDBACK
+  BUY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+}
+
+// ------------------ TENANT ------------------
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  planVariantId Int?
+  plan      Plan     @default(FREE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Billing
+  stripeCustomerId String? @unique
+  stripeSubId      String? @unique
+
+  // Branding
+  primaryColor String?
+  accentColor  String?
+  logoUrl      String?
+  domain       String?
+
+  // Relations
+  memberships     Membership[]
+  campaigns       Campaign[]
+  flyers          Flyer[]
+  shortLinks      ShortLink[]
+  accessRules     AccessRule[]
+  shortLinkEvents ShortLinkEvent[]
+  auditLogs       AuditLog[]
+  webhooks        WebhookEndpoint[]
+  apiKeys         ApiKey[]
+  subscriptions   Subscription[]
+  subscribers     Subscriber[]
+  feedbacks       Feedback[]
+
+  // Back-relation for optional tenant in User
+  users User[] @relation("TenantUsers")
+
+  // History
+  flyerHistories        FlyerHistory[]
+  subscriptionHistories SubscriptionHistory[]
+  shortLinkHistories    ShortLinkHistory[]
+}
+
+// ------------------ USERS & MEMBERSHIPS ------------------
+model User {
+  id        String    @id @default(cuid())
+  name      String?
+  email     String    @unique
+  password  String?
+  role      UserRole  @default(VIEWER)
+
+  // tenantId is null for SUPER_ADMINs
+  tenantId  String?
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id], name: "TenantUsers")
+
+  memberships Membership[]
+  auditLogs   AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      UserRole @default(VIEWER)
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([userId, tenantId])
+}
+
+// ------------------ CAMPAIGNS ------------------
+model Campaign {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  isPaid      Boolean  @default(false)
+  priceCents  Int?
+  currency    String?
+  buyLink     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  flyers Flyer[]
+
+  // Back-relation for history
+  histories FlyerHistory[] @relation("CampaignHistories")
+}
+
+// ------------------ FLYERS ------------------
+model Flyer {
+  id          String    @id @default(cuid())
+  tenantId    String
+  campaignId  String
+  title       String
+  description String?
+  assetType   AssetType
+  originalUrl String
+  cdnUrl      String?
+  s3Key       String?
+  sizeBytes   Int
+  width       Int?
+  height      Int?
+  checksum    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  campaign    Campaign     @relation(fields: [campaignId], references: [id])
+  links       ShortLink[]
+  accessRules AccessRule[]
+
+  subscribers Subscriber[]
+  feedbacks   Feedback[]
+  histories   FlyerHistory[]
+
+  // Back-relation for ShortLinkHistory
+  shortLinkHistories ShortLinkHistory[] @relation("FlyerShortLinkHistories")
+}
+
+// ------------------ SHORT LINKS ------------------
+model ShortLink {
+  id         String    @id @default(cuid())
+  tenantId   String
+  flyerId    String
+  slug       String    @unique
+  targetPath String
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  flyer  Flyer   @relation(fields: [flyerId], references: [id], onDelete: Cascade)
+  qr     QRCode?
+
+  events   ShortLinkEvent[]
+  histories ShortLinkHistory[]
+}
+
+// ------------------ QR CODES ------------------
+model QRCode {
+  id          String   @id @default(cuid())
+  shortLinkId String   @unique
+  format      QRFormat @default(PNG)
+  imageUrl    String
+  fgColor     String?
+  bgColor     String?
+  logoUrl     String?
+  margin      Int?
+  createdAt   DateTime @default(now())
+
+  shortLink ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
+}
+
+// ------------------ ACCESS RULES ------------------
+model AccessRule {
+  id         String   @id @default(cuid())
+  tenantId   String
+  flyerId    String
+  type       String
+  configJson String
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  flyer  Flyer  @relation(fields: [flyerId], references: [id])
+}
+
+// ------------------ SHORT LINK EVENTS ------------------
+model ShortLinkEvent {
+  id          String             @id @default(cuid())
+  tenantId    String
+  shortLinkId String
+  kind        ShortLinkEventKind
+  ipHash      String?
+  userAgent   String?
+  referrer    String?
+  country     String?
+  city        String?
+  createdAt   DateTime           @default(now())
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  shortLink ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
+
+  @@unique([shortLinkId, kind, ipHash, userAgent])
+}
+
+// ------------------ WEBHOOKS ------------------
+model WebhookEndpoint {
+  id        String   @id @default(cuid())
+  tenantId  String
+  url       String
+  secret    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
+// ------------------ API KEYS ------------------
+model ApiKey {
+  id        String    @id @default(cuid())
+  tenantId  String
+  name      String
+  hash      String    @unique
+  createdAt DateTime  @default(now())
+  lastUsed  DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
+// ------------------ AUDIT LOGS ------------------
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String?
+  action    String
+  metaJson  String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id])
+}
+
+// ------------------ SUBSCRIPTIONS ------------------
+model Subscription {
+  id          String             @id @default(cuid())
+  tenantId    String             @unique
+  providerId  String?            @unique
+  stripeSubId String?            @unique
+  status      SubscriptionStatus
+  plan        Plan
+  startDate   DateTime           @default(now())
+  endDate     DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  histories SubscriptionHistory[]
+}
+
+// ------------------ SUBSCRIBERS ------------------
+model Subscriber {
+  id         String   @id @default(cuid())
+  tenantId   String
+  flyerId    String
+  email      String
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  flyer  Flyer  @relation(fields: [flyerId], references: [id])
+}
+
+// ------------------ FEEDBACK ------------------
+model Feedback {
+  id         String   @id @default(cuid())
+  tenantId   String
+  flyerId    String
+  rating     Int      // 1..5
+  comment    String?
+  email      String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  flyer  Flyer  @relation(fields: [flyerId], references: [id])
+}
+
+// ------------------ HISTORY TABLES ------------------
+model SubscriptionHistory {
+  id             String             @id @default(cuid())
+  subscriptionId String
+  tenantId       String
+  plan           Plan
+  status         SubscriptionStatus
+  startDate      DateTime
+  endDate        DateTime?
+  createdAt      DateTime           @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+}
+
+// ------------------ FLYER HISTORY ------------------
+model FlyerHistory {
+  id          String    @id @default(cuid())
+  flyerId     String
+  tenantId    String
+  campaignId  String
+  title       String
+  description String?
+  assetType   AssetType
+  originalUrl String
+  cdnUrl      String?
+  s3Key       String?
+  sizeBytes   Int
+  width       Int?
+  height      Int?
+  checksum    String?
+  createdAt   DateTime  @default(now())
+
+  flyer    Flyer    @relation(fields: [flyerId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  campaign Campaign @relation(fields: [campaignId], references: [id], name: "CampaignHistories")
+}
+
+
+model ShortLinkHistory {
+  id          String    @id @default(cuid())
+  shortLinkId String
+  tenantId    String
+  flyerId     String
+  slug        String
+  targetPath  String
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  shortLink ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  flyer     Flyer     @relation(fields: [flyerId], references: [id], name: "FlyerShortLinkHistories")
+}
