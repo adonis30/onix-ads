@@ -69,7 +69,8 @@ export default function TenantsPage() {
       field: "users",
       headerName: "Users",
       flex: 0.5,
-      valueGetter: (params) => (params as any).row?._count?.users ?? 0,
+      valueGetter: (params: { row: Tenant }) => params?.row?._count?.users ?? 0,
+
     },
     { field: "domain", headerName: "Domain", flex: 1 },
     {
