@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "./prisma";
 
-type Handler = (req: NextRequest, user: { role: string; tenantId?: string }) => Promise<NextResponse>;
+type UserContext = { role: string; tenantId?: string };
+type Handler = (req: NextRequest, user: UserContext) => Promise<NextResponse>;
 
 export function withRoleAndTenant(
   handler: Handler,
@@ -10,18 +11,24 @@ export function withRoleAndTenant(
 ) {
   return async function (req: NextRequest) {
     try {
-      const role = req.headers.get("x-user-role");
-      const tenantId = req.headers.get("x-tenant-id") ?? undefined; // ✅ normalize null → undefined
+      // --- Extract role and tenantId from headers or cookies ---
+      let role = req.headers.get("x-user-role") || undefined;
+      let tenantId = req.headers.get("x-tenant-id") || undefined;
 
+      if (!role) role = req.cookies.get("userRole")?.value;
+      if (!tenantId) tenantId = req.cookies.get("tenantId")?.value;
+
+      // --- Basic role validation ---
       if (!role || !allowedRoles.includes(role)) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
       }
 
+      // --- Tenant required for tenant-specific roles ---
       if (allowedRoles.includes("TENANT_ADMIN") && !tenantId) {
         return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
       }
 
-      // Ownership check
+      // --- Optional ownership check ---
       if (checkOwnership && tenantId) {
         const resourceId = req.nextUrl.searchParams.get(checkOwnership.idParam);
         if (!resourceId) {
@@ -41,10 +48,14 @@ export function withRoleAndTenant(
         }
       }
 
+      // --- Call original handler with validated user context ---
       return await handler(req, { role, tenantId });
     } catch (err: any) {
       console.error(err);
-      return NextResponse.json({ error: err.message || "Internal Server Error" }, { status: 500 });
+      return NextResponse.json(
+        { error: err.message || "Internal Server Error" },
+        { status: 500 }
+      );
     }
   };
 }

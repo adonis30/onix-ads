@@ -17,7 +17,6 @@ export const authOptions = {
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
-
         if (!user) return null;
 
         const isValid = await compare(credentials.password, user.password!);

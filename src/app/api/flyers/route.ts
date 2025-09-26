@@ -1,10 +1,13 @@
 // src/app/api/flyers/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { prisma } from "@/lib/prisma";
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
@@ -20,9 +23,8 @@ const s3 = new S3Client({
     secretAccessKey: process.env.S3_SECRET!,
   },
 });
-  
 
-
+// ---------- Helpers ----------
 async function uploadToS3(buffer: Buffer, key: string, mimeType: string) {
   await s3.send(
     new PutObjectCommand({
@@ -30,7 +32,6 @@ async function uploadToS3(buffer: Buffer, key: string, mimeType: string) {
       Key: key,
       Body: buffer,
       ContentType: mimeType,
-      ACL: undefined, // no ACLs needed
     })
   );
   return key;
@@ -44,8 +45,7 @@ async function getSignedUrlForKey(key: string) {
   return getSignedUrl(s3, command, { expiresIn: 3600 });
 }
 
-
-// ---------------- POST: Upload flyer + QR + ShortLink ----------------
+// ---------------- POST: Upload flyer ----------------
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -57,27 +57,42 @@ export async function POST(req: NextRequest) {
     const assetType = formData.get("assetType")?.toString() || "";
     const campaignId = formData.get("campaignId")?.toString() || "";
 
+    // Payment-related fields
+    const isFree = formData.get("isFree")?.toString() === "true"; // ✅ correct
+    const priceCents = !isFree && formData.get("priceCents")
+      ? parseInt(formData.get("priceCents")!.toString(), 10)
+      : null;
+    const currency = !isFree ? formData.get("currency")?.toString() || "USD" : null;
+    const buyLink = formData.get("buyLink")?.toString() || null;
+
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, tenantId: session.user.tenantId },
     });
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
-    const files: File[] = [];
-    for (const entry of formData.entries()) {
-      if (entry[1] instanceof File && entry[0] === "file") files.push(entry[1]);
+    // Separate files
+    const flyerFiles: File[] = [];
+    let coverFile: File | null = null;
+
+    for (const [key, value] of formData.entries()) {
+      if (value instanceof File) {
+        if (key === "file") flyerFiles.push(value);
+        if (key === "cover") coverFile = value;
+      }
     }
-    if (!files.length) return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
+
+    if (!flyerFiles.length) return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
 
     const baseUrl = process.env.APP_BASE_URL;
     if (!baseUrl) throw new Error("APP_BASE_URL is not defined");
 
     const createdFlyers = await Promise.all(
-      files.map(async (file) => {
+      flyerFiles.map(async (file) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         const mimeType = file.type || "application/octet-stream";
         const s3Key = `${session.user.tenantId}/flyer/${uuidv4()}-${file.name}`;
 
-        // Upload flyer to S3
+        // Upload main flyer
         await uploadToS3(buffer, s3Key, mimeType);
 
         let width: number | null = null;
@@ -90,6 +105,16 @@ export async function POST(req: NextRequest) {
 
         const checksum = crypto.createHash("md5").update(buffer).digest("hex");
 
+        // Upload cover if exists
+        let coverUrl: string | null = null;
+        if (coverFile) {
+          const coverBuffer = Buffer.from(await coverFile.arrayBuffer());
+          const coverMime = coverFile.type || "application/octet-stream";
+          const coverS3Key = `${session.user.tenantId}/flyer/covers/${uuidv4()}-${coverFile.name}`;
+          await uploadToS3(coverBuffer, coverS3Key, coverMime);
+          coverUrl = `/${coverS3Key}`;
+        }
+
         // Create flyer in DB
         const flyer = await prisma.flyer.create({
           data: {
@@ -100,17 +125,22 @@ export async function POST(req: NextRequest) {
             assetType: assetType as any,
             originalUrl: `/${s3Key}`,
             cdnUrl: `/${s3Key}`,
+            coverUrl,
+            s3Key,
             sizeBytes: buffer.length,
             width,
             height,
             checksum,
-       
+            isFree,
+            priceCents,
+            currency,
+            buyLink,
           },
         });
 
-        // Generate ShortLink pointing directly to /app/flyers/:id
+        // Generate ShortLink pointing to flyer page
         const targetPath = `/flyer/${flyer.id}`;
-        const slug = uuidv4().split("-")[0]; // optional for uniqueness
+        const slug = uuidv4().split("-")[0];
 
         const shortLink = await prisma.shortLink.create({
           data: {
@@ -127,7 +157,6 @@ export async function POST(req: NextRequest) {
           color: { dark: "#000", light: "#fff" },
         });
         const qrKey = `${session.user.tenantId}/qrcodes/${slug}.png`;
-
         await uploadToS3(qrBuffer, qrKey, "image/png");
 
         const qr = await prisma.qRCode.create({
@@ -166,6 +195,9 @@ export async function GET(req: NextRequest) {
         const flyerKey = f.cdnUrl?.replace(/^\//, "");
         const cdnUrl = flyerKey ? await getSignedUrlForKey(flyerKey) : null;
 
+        const coverKey = f.coverUrl?.replace(/^\//, "");
+        const coverSignedUrl = coverKey ? await getSignedUrlForKey(coverKey) : null;
+
         const qr = f.links[0]?.qr;
         const qrKey = qr?.imageUrl?.replace(/^\//, "");
         const qrUrl = qrKey ? await getSignedUrlForKey(qrKey) : null;
@@ -174,7 +206,20 @@ export async function GET(req: NextRequest) {
           ? `${process.env.APP_BASE_URL}/flyer/${f.id}`
           : null;
 
-        return { ...f, cdnUrl, qrCodeUrl: qrUrl, shortcode };
+        // ✅ unified isPaid: true if campaign OR flyer is paid
+        const isPaid = (f.campaign?.isPaid ?? false) || !f.isFree;
+
+        return {
+          ...f,
+          cdnUrl,
+          coverUrl: coverSignedUrl,
+          qrCodeUrl: qrUrl,
+          shortcode,
+          isPaid,
+          priceCents: isPaid ? (f.priceCents ?? f.campaign?.priceCents) : null,
+          currency: isPaid ? (f.currency ?? f.campaign?.currency) : null,
+          buyLink: f.buyLink ?? f.campaign?.buyLink,
+        };
       })
     );
 

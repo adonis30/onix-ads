@@ -19,9 +19,9 @@ const navLinks = [
   { href: "/admin", label: "Home", icon: HomeIcon },
   { href: "/tenants", label: "Tenants", icon: UsersIcon },
 /*   { href: "/analytics", label: "Analytics", icon: ChartBarIcon }, */
-  { href: "/settings", label: "Settings", icon: Cog6ToothIcon },
+  { href: "/admin-settings", label: "Settings", icon: Cog6ToothIcon },
  /*  { href: "/notifications", label: "Notifications", icon: BellIcon }, */
-  { href: "/billings", label: "Billing", icon: ChartBarIcon },
+  { href: "/admin-billings", label: "Billing", icon: ChartBarIcon },
   { href: "/admin-users", label: "Users", icon: UsersIcon },
 /*   { href: "/projects", label: "Projects", icon: ChartBarIcon }, */
   { href: "/admin-campaigns", label: "Campaigns", icon: ChartBarIcon },

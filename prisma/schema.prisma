@@ -54,17 +54,17 @@ enum SubscriptionStatus {
 
 // ------------------ TENANT ------------------
 model Tenant {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  planVariantId Int?
-  plan      Plan     @default(FREE)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  id               String        @id @default(cuid())
+  name             String
+  slug             String        @unique
+  planVariantId    Int?
+  plan             Plan          @default(FREE)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  forms            DynamicForm[]
   // Billing
-  stripeCustomerId String? @unique
-  stripeSubId      String? @unique
+  stripeCustomerId String?       @unique
+  stripeSubId      String?       @unique
 
   // Branding
   primaryColor String?
@@ -86,6 +86,7 @@ model Tenant {
   subscribers     Subscriber[]
   feedbacks       Feedback[]
 
+
   // Back-relation for optional tenant in User
   users User[] @relation("TenantUsers")
 
@@ -93,19 +94,21 @@ model Tenant {
   flyerHistories        FlyerHistory[]
   subscriptionHistories SubscriptionHistory[]
   shortLinkHistories    ShortLinkHistory[]
+
+  payments          Payment[]
 }
 
 // ------------------ USERS & MEMBERSHIPS ------------------
 model User {
-  id        String    @id @default(cuid())
-  name      String?
-  email     String    @unique
-  password  String?
-  role      UserRole  @default(VIEWER)
+  id       String   @id @default(cuid())
+  name     String?
+  email    String   @unique
+  password String?
+  role     UserRole @default(VIEWER)
 
   // tenantId is null for SUPER_ADMINs
-  tenantId  String?
-  tenant    Tenant?   @relation(fields: [tenantId], references: [id], name: "TenantUsers")
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], name: "TenantUsers")
 
   memberships Membership[]
   auditLogs   AuditLog[]
@@ -113,7 +116,6 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
 
 model Membership {
   id        String   @id @default(cuid())
@@ -159,6 +161,7 @@ model Flyer {
   assetType   AssetType
   originalUrl String
   cdnUrl      String?
+  coverUrl    String?
   s3Key       String?
   sizeBytes   Int
   width       Int?
@@ -166,6 +169,13 @@ model Flyer {
   checksum    String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  // 🔑 Payment-related fields
+  isFree        Boolean   @default(true)
+  priceCents    Int?
+  currency      String?
+  buyLink       String?
+  purchaseCount Int       @default(0) // ✅ cached purchases counter
 
   tenant      Tenant       @relation(fields: [tenantId], references: [id])
   campaign    Campaign     @relation(fields: [campaignId], references: [id])
@@ -175,27 +185,30 @@ model Flyer {
   subscribers Subscriber[]
   feedbacks   Feedback[]
   histories   FlyerHistory[]
-
-  // Back-relation for ShortLinkHistory
   shortLinkHistories ShortLinkHistory[] @relation("FlyerShortLinkHistories")
+
+  payments Payment[]
 }
+
 
 // ------------------ SHORT LINKS ------------------
 model ShortLink {
   id         String    @id @default(cuid())
   tenantId   String
-  flyerId    String
+  flyerId    String?   // can be null if linked to form
+  formId     String?   // ✅ add formId for dynamic forms
   slug       String    @unique
   targetPath String
   expiresAt  DateTime?
   createdAt  DateTime  @default(now())
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id])
-  flyer  Flyer   @relation(fields: [flyerId], references: [id], onDelete: Cascade)
-  qr     QRCode?
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  flyer      Flyer?     @relation(fields: [flyerId], references: [id])
+  dynamicForm DynamicForm? @relation(fields: [formId], references: [id])
 
-  events   ShortLinkEvent[]
-  histories ShortLinkHistory[]
+  qr         QRCode?
+  events     ShortLinkEvent[]
+  histories  ShortLinkHistory[]
 }
 
 // ------------------ QR CODES ------------------
@@ -293,17 +306,17 @@ model Subscription {
   startDate   DateTime           @default(now())
   endDate     DateTime?
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant    Tenant                @relation(fields: [tenantId], references: [id])
   histories SubscriptionHistory[]
 }
 
 // ------------------ SUBSCRIBERS ------------------
 model Subscriber {
-  id         String   @id @default(cuid())
-  tenantId   String
-  flyerId    String
-  email      String
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  tenantId  String
+  flyerId   String
+  email     String
+  createdAt DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
   flyer  Flyer  @relation(fields: [flyerId], references: [id])
@@ -311,13 +324,13 @@ model Subscriber {
 
 // ------------------ FEEDBACK ------------------
 model Feedback {
-  id         String   @id @default(cuid())
-  tenantId   String
-  flyerId    String
-  rating     Int      // 1..5
-  comment    String?
-  email      String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  tenantId  String
+  flyerId   String
+  rating    Int // 1..5
+  comment   String?
+  email     String?
+  createdAt DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
   flyer  Flyer  @relation(fields: [flyerId], references: [id])
@@ -361,7 +374,6 @@ model FlyerHistory {
   campaign Campaign @relation(fields: [campaignId], references: [id], name: "CampaignHistories")
 }
 
-
 model ShortLinkHistory {
   id          String    @id @default(cuid())
   shortLinkId String
@@ -376,3 +388,51 @@ model ShortLinkHistory {
   tenant    Tenant    @relation(fields: [tenantId], references: [id])
   flyer     Flyer     @relation(fields: [flyerId], references: [id], name: "FlyerShortLinkHistories")
 }
+
+model DynamicForm {
+  id         String      @id @default(cuid())
+  name       String
+  tenantId   String
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  slug       String      @unique
+  fields     Json
+  createdAt  DateTime    @default(now())
+  responses  Response[]
+  
+  shortLinks ShortLink[] // ✅ one-to-many
+}
+
+model Response {
+  id          String      @id @default(cuid())
+  formId      String
+  data        Json
+  createdAt   DateTime    @default(now())
+  dynamicForm DynamicForm @relation(fields: [formId], references: [id])
+}
+
+//----------PAYMENTS TABLE------///
+
+model Payment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  flyerId     String?  // optional, only if payment is tied to a flyer/ebook
+  accountId   String
+  reference   String   @unique
+  amount      Int
+  currency    String   @default("ZMW")
+  type        String   // COLLECTION | TRANSFER
+  status      String   // PENDING | SUCCESS | FAILED
+  reason      String?
+  recipientId String?
+  provider    String?
+  webhookRaw  Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  completedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  flyer  Flyer? @relation(fields: [flyerId], references: [id])
+
+}
+
+

@@ -36,3 +36,15 @@ export async function apiFetch(
 
   return res;
 }
+
+export async function apiFetchJson<T>(
+  url: string,
+  options: RequestInit = {},
+  session?: any
+): Promise<T> {
+  const res = await apiFetch(url, options, session);
+  if (!res.ok) {
+    throw new Error(`API Error: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}

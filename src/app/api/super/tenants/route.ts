@@ -1,21 +1,17 @@
-// src/app/api/super/tenants/route.ts
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { ok, created, bad, serverError } from "@/lib/http";
+import { ok, created, bad, serverError, notFound } from "@/lib/http";
 import { requireRoles } from "@/lib/auth-guards";
 import { createTenantSchema } from "@/lib/validators";
 import { audit } from "@/lib/audit";
-import { Prisma, UserRole } from "@prisma/client";
+import { Plan, Prisma, UserRole } from "@prisma/client";
 
 /**
  * GET /api/super/tenants
- * Optional query: ?q=<search>
- * Returns tenants (ordered desc) with _count.users (safe for DataGrid)
  */
 export async function GET(req: Request) {
   try {
     await requireRoles([UserRole.SUPER_ADMIN]);
-
     const { searchParams } = new URL(req.url);
     const q = searchParams.get("q")?.trim() || "";
 
@@ -33,9 +29,7 @@ export async function GET(req: Request) {
       where,
       orderBy: { createdAt: "desc" },
       include: {
-        // If you only need a count for the grid, use _count (cheaper than including full users)
         _count: { select: { users: true } },
-        // Keep subscriptions if you need them in UI; otherwise remove to reduce payload
         subscriptions: {
           select: {
             id: true,
@@ -48,7 +42,6 @@ export async function GET(req: Request) {
       },
     });
 
-    // Return as-is: client accesses count via row._count.users (or you can flatten here if you prefer)
     return ok(tenants);
   } catch (e) {
     return serverError(e);
@@ -57,32 +50,39 @@ export async function GET(req: Request) {
 
 /**
  * POST /api/super/tenants
- * Body validated by createTenantSchema (zod)
  */
 export async function POST(req: Request) {
   try {
     const user = await requireRoles([UserRole.SUPER_ADMIN]);
-
     const body = await req.json();
     const parsed = createTenantSchema.safeParse(body);
+
     if (!parsed.success) {
       const message =
         parsed.error.flatten().formErrors?.join(", ") ||
         parsed.error.issues.map(i => i.message).join(", ");
       return bad(message || "Invalid request body");
     }
+
     const data = parsed.data;
 
+    // Auto-generate URL-safe slug if empty
+    const slug = data.slug?.trim() ? data.slug : data.name
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+
     // Ensure slug is unique
-    const exists = await prisma.tenant.findUnique({ where: { slug: data.slug } });
+    const exists = await prisma.tenant.findUnique({ where: { slug } });
     if (exists) return bad("Slug already in use");
 
     const tenant = await prisma.tenant.create({
       data: {
         name: data.name,
-        slug: data.slug,
+        slug,
         plan: data.plan ?? "FREE",
-        planVariantId: data.planVariantId ?? null,
+        planVariantId: data.planVariantId != null ? Number(data.planVariantId) : undefined,
         domain: data.domain || null,
         primaryColor: data.primaryColor ?? null,
         accentColor: data.accentColor ?? null,

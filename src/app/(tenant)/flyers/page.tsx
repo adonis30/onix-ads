@@ -1,131 +1,137 @@
+// src/app/%28tenant%29/flyers/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import * as pdfjsLib from "pdfjs-dist";
-import { FaPlay, FaFilePdf, FaTh, FaList } from "react-icons/fa";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import CreateFlyerForm from "./components/createFlyerForm"; // adjust path if needed
+import {
+  List,
+  Grid,
+  X,
+  Plus,
+  FileText,
+  CreditCard,
+  BadgeDollarSign,
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Flyer, Campaign, FlyerForm, FlyerFormField } from "@/lib/types";
+import { fmtCurrency, acceptFor } from "@/lib/helpers";
 
-interface Flyer {
-  id: string;
-  title: string;
-  description: string;
-  assetType: "IMAGE" | "VIDEO" | "PDF";
-  originalUrl: string;
-  cdnUrl?: string;
-  sizeBytes: number;
-  width?: number | null;
-  height?: number | null;
-  createdAt: string;
-  campaign: { id: string; name: string };
-  qrCodeUrl?: string;
-  shortcode?: string;
-}
-
-interface CampaignGroup {
-  campaignId: string;
-  campaignName: string;
-  flyers: Flyer[];
-}
-
+/** =========================
+ * Component
+ * ========================*/
 export default function FlyerDashboard() {
   const [flyers, setFlyers] = useState<Flyer[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pdfThumbnails, setPdfThumbnails] = useState<Record<string, string>>({});
-  const [pdfLoading, setPdfLoading] = useState<Record<string, boolean>>({});
-  const [showForm, setShowForm] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>("__all__");
+  const [showNewFlyerModal, setShowNewFlyerModal] = useState(false);
+  const [activeFlyer, setActiveFlyer] = useState<Flyer | null>(null);
+  const [activeFormFlyer, setActiveFormFlyer] = useState<Flyer | null>(null);
+  const [submissions, setSubmissions] = useState<Record<string, any>[]>([]);
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const { data: session } = useSession();
+  const role = session ? (session.user as any)?.role : null;
+  const tanantId = session ? (session.user as any)?.tenantId : null;
 
-  // Setup pdf.js worker
+  const [newFlyerData, setNewFlyerData] = useState<{
+    title: string;
+    description: string;
+    assetType: "IMAGE" | "VIDEO" | "PDF";
+    file: File | null;
+    campaignId: string;
+    isFree: boolean;
+    price: string;
+    cover: File | null;
+    form: FlyerForm;
+  }>({
+    title: "",
+    description: "",
+    assetType: "IMAGE",
+    file: null,
+    campaignId: "",
+    isFree: false,
+    price: "",
+    cover: null,
+    form: { name: "", fields: [] },
+  });
+
+  /** =========================
+   * Effects — Fetch data
+   * ========================*/
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      // @ts-ignore
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-    }
-  }, []);
-
-  const fetchFlyers = () => {
-    setLoading(true);
-    fetch("/api/flyers")
-      .then((res) => res.json())
-      .then((data) => setFlyers(data))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
+    const fetchFlyers = async () => {
+      try {
+        const res = await fetch("/api/flyers", { cache: "no-store" });
+        if (!res.ok) throw new Error("Failed to fetch flyers");
+        const data = await res.json();
+        setFlyers(data);
+      } catch (err) {
+        console.error(err);
+        setFlyers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchFlyers();
   }, []);
 
-  // Unique campaigns for filter dropdown
-  const campaigns = useMemo(
-    () => [
-      { id: "__all__", name: "All Campaigns" },
-      ...Array.from(new Map(flyers.map((f) => [f.campaign.id, f.campaign])).values()),
-    ],
-    [flyers]
-  );
+  console.log("flyers:", flyers);
 
-  // Filter flyers by selected campaign
-  const filteredFlyers = useMemo(
-    () =>
-      selectedCampaignId === "__all__"
-        ? flyers
-        : flyers.filter((f) => f.campaign.id === selectedCampaignId),
-    [flyers, selectedCampaignId]
-  );
-
-  // Generate PDF thumbnails
   useEffect(() => {
-    filteredFlyers.forEach(async (flyer) => {
-      if (flyer.assetType === "PDF" && !pdfThumbnails[flyer.id]) {
-        setPdfLoading((prev) => ({ ...prev, [flyer.id]: true }));
-        try {
-          const data = await fetch(flyer.cdnUrl || flyer.originalUrl).then((res) =>
-            res.arrayBuffer()
-          );
-          const pdf = await pdfjsLib.getDocument({ data }).promise;
-          const page = await pdf.getPage(1);
-          const viewport = page.getViewport({ scale: 0.5 });
-          const canvas = document.createElement("canvas");
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          const ctx = canvas.getContext("2d")!;
-          await page.render({ canvasContext: ctx, canvas, viewport }).promise;
-          setPdfThumbnails((prev) => ({ ...prev, [flyer.id]: canvas.toDataURL() }));
-        } catch (err) {
-          console.error("PDF thumbnail error:", err);
-        } finally {
-          setPdfLoading((prev) => ({ ...prev, [flyer.id]: false }));
-        }
+    const fetchCampaigns = async () => {
+      try {
+        const res = await fetch("/api/tenants/campaigns", {
+          headers: {
+            "x-tenant-id": tanantId || "",
+            "x-user-role": role || "",
+          },
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error("Failed to fetch campaigns");
+        const data = await res.json();
+        setCampaigns(data);
+      } catch (err) {
+        console.error("Error fetching campaigns:", err);
+        setCampaigns([]);
       }
-    });
-  }, [filteredFlyers]);
+    };
+    fetchCampaigns();
+  }, []);
 
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-  };
+  /** =========================
+   * Handlers
+   * ========================*/
+  const handleOpenFlyer = (flyer: Flyer) => setActiveFlyer(flyer);
 
-  const handlePreview = (flyer: Flyer) => {
-    window.open(flyer.cdnUrl || flyer.originalUrl, "_blank", "noopener,noreferrer");
-  };
-
-  const handleDelete = async (flyerId: string) => {
-    if (!confirm("Are you sure you want to delete this flyer?")) return;
+  const handleOpenFormModal = async (flyer: Flyer) => {
+    if (!flyer.form) return;
+    setActiveFormFlyer(flyer);
     try {
-      const res = await fetch(`/api/flyers/${flyerId}`, { method: "DELETE" });
+      const res = await fetch(`/api/flyers/${flyer.id}/submissions`);
+      if (!res.ok) throw new Error("Failed to fetch submissions");
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "Delete failed");
-      fetchFlyers();
-      setFlyers((prev) => prev.filter((f) => f.id !== flyerId));
+      setSubmissions(data);
+    } catch {
+      setSubmissions([]);
+    }
+  };
+
+  const handleSubmitForm = async (formData: Record<string, any>) => {
+    if (!activeFormFlyer) return;
+    setFormSubmitting(true);
+    try {
+      const res = await fetch(`/api/flyers/${activeFormFlyer.id}/submit-form`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      if (!res.ok) throw new Error("Form submission failed");
+      alert("Form submitted successfully!");
+      setSubmissions((prev) => [...prev, formData]);
     } catch (err) {
-      console.error(err);
-      alert("Error deleting flyer: " + (err instanceof Error ? err.message : ""));
+      alert(err instanceof Error ? err.message : "Submission error");
+    } finally {
+      setFormSubmitting(false);
     }
   };
 
@@ -145,300 +151,886 @@ export default function FlyerDashboard() {
     alert(`Shortcode copied: ${flyer.shortcode}`);
   };
 
-  // Group flyers by campaign
-  const groupedFlyers: CampaignGroup[] = filteredFlyers.reduce(
-    (acc: CampaignGroup[], flyer) => {
-      const existing = acc.find((g) => g.campaignId === flyer.campaign.id);
-      if (existing) existing.flyers.push(flyer);
-      else
-        acc.push({
-          campaignId: flyer.campaign.id,
-          campaignName: flyer.campaign.name,
-          flyers: [flyer],
-        });
-      return acc;
-    },
-    []
-  );
+  const handleAddFormField = () => {
+    setNewFlyerData((prev) => ({
+      ...prev,
+      form: {
+        ...prev.form,
+        fields: [
+          ...prev.form.fields,
+          { name: "", type: "text", required: false },
+        ],
+      },
+    }));
+  };
 
+  const normalizedPriceCents = useMemo(() => {
+    const n = Math.round(Number(newFlyerData.price) * 100);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }, [newFlyerData.price]);
+
+  const handleCreateFlyer = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // --- Validation ---
+    if (!newFlyerData.title.trim()) return alert("Title is required.");
+    if (!newFlyerData.file) return alert("Please upload a flyer file.");
+    if (!newFlyerData.campaignId) return alert("Please select a campaign.");
+
+    // Normalize price
+    const normalizedPriceCents = newFlyerData.price
+      ? Math.round(parseFloat(newFlyerData.price) * 100)
+      : 0;
+
+    if (newFlyerData.isFree) {
+      if (!newFlyerData.price || normalizedPriceCents <= 0) {
+        return alert("Please enter a valid price.");
+      }
+      if (newFlyerData.assetType === "PDF" && !newFlyerData.cover) {
+        return alert("Please upload a cover image for the paid ebook (PDF).");
+      }
+    }
+
+    // --- Prepare FormData ---
+    const formData = new FormData();
+    formData.append("title", newFlyerData.title);
+    if (newFlyerData.description)
+      formData.append("description", newFlyerData.description);
+    formData.append("assetType", newFlyerData.assetType);
+    formData.append("file", newFlyerData.file!);
+    formData.append("campaignId", newFlyerData.campaignId);
+    formData.append("form", JSON.stringify(newFlyerData.form));
+    formData.append("isFree", newFlyerData.isFree ? "false" : "true");
+
+    if (newFlyerData.isFree) {
+      formData.append("priceCents", String(normalizedPriceCents));
+      if (newFlyerData.cover) {
+        formData.append("cover", newFlyerData.cover); // 🔑 not coverFile
+      }
+    }
+
+    try {
+      const res = await fetch("/api/flyers", {
+        method: "POST",
+        body: formData,
+      });
+
+      console.log("Upload response:", formData);
+
+      if (!res.ok) throw new Error("Failed to upload flyer");
+
+      const created: Flyer = await res.json();
+      setFlyers((prev) => [created, ...prev]);
+
+      // Reset form
+      setShowNewFlyerModal(false);
+      setNewFlyerData(resetNewFlyerData());
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : "Upload error");
+    }
+  };
+
+  // --- Helper reset function ---
+  const resetNewFlyerData = (): {
+    title: string;
+    description: string;
+    assetType: "IMAGE" | "VIDEO" | "PDF";
+    file: File | null;
+    campaignId: string;
+    isFree: boolean;
+    price: string;
+    cover: File | null;
+    form: FlyerForm;
+  } => ({
+    title: "",
+    description: "",
+    assetType: "IMAGE",
+    file: null,
+    campaignId: "",
+    isFree: false,
+    price: "",
+    cover: null,
+    form: { name: "", fields: [] },
+  });
+
+  const handleBuyNow = async (flyer: Flyer) => {
+    if (!flyer.isPaid || !flyer.priceCents) return;
+    try {
+      const res = await fetch("/api/payments/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          flyerId: flyer.id,
+          amountCents: flyer.priceCents,
+        }),
+      });
+      if (res.ok) {
+        const { checkoutUrl } = await res.json();
+        if (checkoutUrl) {
+          window.location.href = checkoutUrl;
+          return;
+        }
+      }
+      alert(
+        `Mock checkout: charging ${fmtCurrency(flyer.priceCents)} for "${
+          flyer.title
+        }"`
+      );
+    } catch {
+      alert(
+        `Mock checkout: charging ${fmtCurrency(flyer.priceCents)} for "${
+          flyer.title
+        }"`
+      );
+    }
+  };
+
+  const PaidBadge: React.FC<{ flyer: Flyer }> = ({ flyer }) =>
+    flyer.isPaid ? (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 text-xs">
+        <BadgeDollarSign size={14} />
+        {fmtCurrency(flyer.priceCents)}
+      </span>
+    ) : null;
+
+  /** =========================
+   * Render
+   * ========================*/
   return (
-    <div className="space-y-8 p-6 bg-gray-900 min-h-screen">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+    <div className="p-6">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-white">📢 Flyer Dashboard</h1>
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowForm(true)}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white font-medium transition"
+            onClick={() => setShowNewFlyerModal(true)}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-semibold"
           >
-            Create New Flyer
+            <Plus size={18} /> New Flyer
           </button>
-          <select
-            value={selectedCampaignId}
-            onChange={(e) => setSelectedCampaignId(e.target.value)}
-            className="px-3 py-2 bg-gray-800 text-gray-100 rounded border border-gray-700"
-          >
-            {campaigns.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode("grid")}
-            className={`p-2 rounded transition ${
-              viewMode === "grid"
-                ? "bg-gray-700 text-white"
-                : "bg-gray-800 text-gray-400 hover:text-white"
-            }`}
-          >
-            <FaTh />
-          </button>
-          <button
-            onClick={() => setViewMode("list")}
-            className={`p-2 rounded transition ${
-              viewMode === "list"
-                ? "bg-gray-700 text-white"
-                : "bg-gray-800 text-gray-400 hover:text-white"
-            }`}
-          >
-            <FaList />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setViewMode("grid")}
+              className={`p-2 rounded-lg transition ${
+                viewMode === "grid"
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-800 text-gray-300"
+              }`}
+            >
+              <Grid size={18} />
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={`p-2 rounded-lg transition ${
+                viewMode === "list"
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-800 text-gray-300"
+              }`}
+            >
+              <List size={18} />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Flyers grid/list */}
+      {loading ? (
+        <div className="text-gray-300">Loading…</div>
+      ) : flyers.length === 0 ? (
+        <div className="text-gray-400">
+          No flyers yet. Click “New Flyer” to create one.
+        </div>
+      ) : (
+        <div
+          className={
+            viewMode === "grid"
+              ? "grid grid-cols-1 md:grid-cols-3 gap-6"
+              : "flex flex-col gap-4"
+          }
+        >
+          {flyers.map((flyer) => (
+            <motion.div
+              key={flyer.id}
+              className="bg-gray-900 text-white rounded-xl shadow-md p-4 flex flex-col md:flex-row md:items-center relative hover:shadow-lg hover:shadow-blue-500/20 transition-all"
+              whileHover={{ scale: 1.01 }}
+            >
+              {(flyer.coverUrl || flyer.cdnUrl) && (
+                <img
+                  src={flyer.coverUrl || flyer.cdnUrl}
+                  alt={flyer.title}
+                  className={`${
+                    viewMode === "grid" ? "w-full h-40" : "w-32 h-32"
+                  } object-cover rounded-lg mb-4 md:mb-0 md:mr-4`}
+                />
+              )}
+              <div className="flex flex-col flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-semibold">{flyer.title}</h3>
+                  <PaidBadge flyer={flyer} />
+                </div>
+                <p className="text-gray-400 text-sm mb-2 line-clamp-2">
+                  {flyer.description}
+                </p>
+                <p className="text-xs text-gray-400">
+                  📌 Campaign: {flyer.campaign?.name}
+                </p>
+
+                {flyer.qrCodeUrl && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <img
+                      src={flyer.qrCodeUrl}
+                      alt="QR code"
+                      className="w-16 h-16 object-contain border border-gray-600 rounded"
+                    />
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => handleDownloadQRCode(flyer)}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
+                      >
+                        Download QR
+                      </button>
+                      {flyer.shortcode && (
+                        <button
+                          onClick={() => handleCopyShortcode(flyer)}
+                          className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+                        >
+                          Copy Shortcode
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={() => handleOpenFlyer(flyer)}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded"
+                  >
+                    Preview
+                  </button>
+                  {flyer.form && (
+                    <button
+                      onClick={() => handleOpenFormModal(flyer)}
+                      className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded flex items-center gap-1"
+                    >
+                      <FileText size={14} /> Form
+                    </button>
+                  )}
+                  {/* DELETE BUTTON */}
+                  <button
+                    onClick={async () => {
+                      if (
+                        !confirm(
+                          `Are you sure you want to delete "${flyer.title}"?`
+                        )
+                      )
+                        return;
+                      try {
+                        const res = await fetch(`/api/flyers/${flyer.id}`, {
+                          method: "DELETE",
+                        });
+                        if (!res.ok) throw new Error("Failed to delete flyer");
+                        setFlyers((prev) =>
+                          prev.filter((f) => f.id !== flyer.id)
+                        );
+                      } catch (err) {
+                        alert(
+                          err instanceof Error ? err.message : "Delete error"
+                        );
+                      }
+                    }}
+                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+      {/* =========================
+          Preview Modal (with paywall)
+         ========================= */}
       <AnimatePresence>
-        {showForm && (
+        {activeFlyer && (
           <motion.div
-            key="modal"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            key="previewModal"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
             <motion.div
-              className="bg-gray-900 rounded-lg p-6 shadow-xl w-full max-w-lg relative cursor-grab"
-              drag
-              dragConstraints={{ top: -100, bottom: 100, left: -100, right: 100 }}
-              dragElastic={0.2}
+              className="bg-gray-900 rounded-xl p-6 shadow-xl w-full max-w-3xl relative max-h-[90vh] overflow-y-auto border border-gray-700"
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
             >
               <button
-                onClick={() => setShowForm(false)}
-                className="absolute top-2 right-2 text-gray-300 hover:text-white text-xl font-bold"
+                onClick={() => setActiveFlyer(null)}
+                className="absolute top-3 right-3 text-gray-300 hover:text-white"
+                aria-label="Close"
               >
-                &times;
+                <X size={22} />
               </button>
-              <CreateFlyerForm
-                onFlyerCreated={() => {
-                  fetchFlyers();
-                  setShowForm(false);
-                }}
-              />
+
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {activeFlyer.title}
+                  </h2>
+                  <p className="text-gray-300">{activeFlyer.description}</p>
+                </div>
+                <PaidBadge flyer={activeFlyer} />
+              </div>
+
+              {/* Paywall logic for PDF ebooks */}
+              {activeFlyer.assetType === "PDF" &&
+              activeFlyer.isPaid &&
+              !activeFlyer.hasPurchased ? (
+                <div className="space-y-4">
+                  {activeFlyer.coverUrl ? (
+                    <img
+                      src={activeFlyer.coverUrl}
+                      alt="Ebook cover"
+                      className="w-full rounded-lg"
+                    />
+                  ) : (
+                    <div className="w-full h-64 rounded-lg border border-dashed border-gray-700 grid place-items-center text-gray-400">
+                      Ebook cover not available
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border border-gray-700 p-4 bg-gray-800/50">
+                    <p className="text-gray-200 font-medium mb-2">
+                      This is a paid ebook. Purchase to unlock the full PDF.
+                    </p>
+                    <button
+                      onClick={() => handleBuyNow(activeFlyer)}
+                      className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded"
+                    >
+                      <CreditCard size={16} />
+                      Buy Now {fmtCurrency(activeFlyer.priceCents)}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                // unlocked or free
+                <>
+                  {activeFlyer.assetType === "IMAGE" && activeFlyer.cdnUrl && (
+                    <img
+                      src={activeFlyer.cdnUrl}
+                      alt={activeFlyer.title}
+                      className="w-full rounded-lg"
+                    />
+                  )}
+                  {activeFlyer.assetType === "VIDEO" && activeFlyer.cdnUrl && (
+                    <video
+                      src={activeFlyer.cdnUrl}
+                      controls
+                      className="w-full rounded-lg"
+                    />
+                  )}
+                  {activeFlyer.assetType === "PDF" && activeFlyer.cdnUrl && (
+                    <iframe
+                      src={activeFlyer.cdnUrl}
+                      className="w-full h-[70vh] rounded-lg"
+                    />
+                  )}
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Flyers */}
-      {loading ? (
-        <p className="text-gray-300">Loading flyers...</p>
-      ) : filteredFlyers.length === 0 ? (
-        <p className="text-gray-300">
-          {selectedCampaignId === "__all__"
-            ? "No flyers found."
-            : "No flyers in this campaign."}
-        </p>
-      ) : (
-        groupedFlyers.map((group) => (
-          <div key={group.campaignId} className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-white">{group.campaignName}</h2>
-              <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">
-                {group.flyers.length} item{group.flyers.length === 1 ? "" : "s"}
-              </span>
-            </div>
+      {/* =========================
+          New Flyer Modal (with paid ebook controls)
+         ========================= */}
+      <AnimatePresence>
+        {showNewFlyerModal && (
+          <motion.div
+            key="newFlyerModal"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-gray-900 rounded-xl p-6 shadow-xl w-full max-w-2xl relative border border-gray-700"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+            >
+              <button
+                onClick={() => setShowNewFlyerModal(false)}
+                className="absolute top-3 right-3 text-gray-300 hover:text-white"
+              >
+                <X size={22} />
+              </button>
 
-            {viewMode === "grid" ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                {group.flyers.map((flyer) => (
-                  <div
-                    key={flyer.id}
-                    className="bg-gray-900 rounded-lg shadow-lg hover:shadow-2xl transition transform hover:-translate-y-1 overflow-hidden group relative"
-                  >
-                    {/* Media */}
-                    <div className="relative w-full h-48 bg-gray-700">
-                      {flyer.assetType === "IMAGE" && (
-                        <img
-                          src={flyer.cdnUrl || flyer.originalUrl}
-                          alt={flyer.title}
-                          className="w-full h-full object-cover"
+              <h2 className="text-xl font-bold text-white mb-4">
+                ➕ Add New Flyer
+              </h2>
+
+              <form onSubmit={handleCreateFlyer} className="space-y-6">
+                {/* Basics */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-gray-300 block mb-1">Title</label>
+                    <input
+                      type="text"
+                      value={newFlyerData.title}
+                      onChange={(e) =>
+                        setNewFlyerData({
+                          ...newFlyerData,
+                          title: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-gray-300 block mb-1">Campaign</label>
+                    <select
+                      value={newFlyerData.campaignId}
+                      onChange={(e) =>
+                        setNewFlyerData({
+                          ...newFlyerData,
+                          campaignId: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
+                      required
+                    >
+                      <option value="">-- Select Campaign --</option>
+                      {campaigns.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="text-gray-300 block mb-1">
+                      Description
+                    </label>
+                    <textarea
+                      value={newFlyerData.description}
+                      onChange={(e) =>
+                        setNewFlyerData({
+                          ...newFlyerData,
+                          description: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Asset */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-gray-300 block mb-1">
+                      Asset Type
+                    </label>
+                    <select
+                      value={newFlyerData.assetType}
+                      onChange={(e) =>
+                        setNewFlyerData({
+                          ...newFlyerData,
+                          assetType: e.target
+                            .value as typeof newFlyerData.assetType,
+                        })
+                      }
+                      className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
+                    >
+                      <option value="IMAGE">Image</option>
+                      <option value="VIDEO">Video</option>
+                      <option value="PDF">PDF</option>
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="text-gray-300 block mb-1">
+                      Upload File
+                    </label>
+                    <input
+                      type="file"
+                      accept={acceptFor(newFlyerData.assetType)}
+                      onChange={(e) =>
+                        setNewFlyerData({
+                          ...newFlyerData,
+                          file: e.target.files ? e.target.files[0] : null,
+                        })
+                      }
+                      className="w-full text-gray-300"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Monetization */}
+                <div className="rounded-lg border border-gray-700 p-4 bg-gray-800/40">
+                  <div className="flex items-center gap-3 mb-3">
+                    <input
+                      id="isPaid"
+                      type="checkbox"
+                      checked={newFlyerData.isFree}
+                      onChange={(e) =>
+                        setNewFlyerData({
+                          ...newFlyerData,
+                          isFree: e.target.checked,
+                        })
+                      }
+                    />
+                    <label
+                      htmlFor="isPaid"
+                      className="text-gray-200 font-medium"
+                    >
+                      This is a paid flyer (ebook)
+                    </label>
+                  </div>
+
+                  {newFlyerData.isFree && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-gray-300 block mb-1">
+                          Price (USD)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          value={newFlyerData.price}
+                          onChange={(e) =>
+                            setNewFlyerData({
+                              ...newFlyerData,
+                              price: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
+                          placeholder="e.g. 9.99"
+                          required
                         />
-                      )}
-                      {flyer.assetType === "VIDEO" && (
-                        <>
-                          <video
-                            src={flyer.cdnUrl || flyer.originalUrl}
-                            className="w-full h-full object-cover"
-                            muted
-                            loop
-                            playsInline
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center text-white text-4xl bg-black/20 rounded">
-                            <FaPlay />
-                          </div>
-                        </>
-                      )}
-                      {flyer.assetType === "PDF" && (
-                        <>
-                          {pdfThumbnails[flyer.id] ? (
-                            <img
-                              src={pdfThumbnails[flyer.id]}
-                              alt="PDF thumbnail"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-200">
-                              <div className="animate-spin mb-2 border-4 border-t-blue-600 border-gray-400 w-10 h-10 rounded-full"></div>
-                              Loading PDF...
-                            </div>
-                          )}
-                          <div className="absolute top-2 left-2 text-white bg-red-600 px-2 py-1 rounded flex items-center gap-1 font-semibold">
-                            <FaFilePdf /> PDF
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Info */}
-                    <div className="p-4 space-y-2">
-                      <p className="font-semibold text-white truncate">{flyer.title}</p>
-                      <p className="text-gray-300 text-sm truncate">{flyer.description}</p>
-
-                      <div className="flex flex-col gap-2">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handlePreview(flyer)}
-                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm flex-1"
-                          >
-                            Preview
-                          </button>
-                          <button
-                            onClick={() => handleDelete(flyer.id)}
-                            className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm flex-1"
-                          >
-                            Delete
-                          </button>
-                        </div>
-
-                        {flyer.qrCodeUrl && (
-                          <div className="flex items-center gap-2 mt-2">
-                            <img
-                              src={flyer.qrCodeUrl}
-                              alt="QR code"
-                              className="w-16 h-16 object-contain border border-gray-600 rounded"
-                            />
-                            <div className="flex flex-col gap-1">
-                              <button
-                                onClick={() => handleDownloadQRCode(flyer)}
-                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
-                              >
-                                Download QR
-                              </button>
-                              {flyer.shortcode && (
-                                <button
-                                  onClick={() => handleCopyShortcode(flyer)}
-                                  className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
-                                >
-                                  Copy Shortcode
-                                </button>
-                              )}
-                            </div>
-                          </div>
+                        {newFlyerData.price && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            You’ll charge {fmtCurrency(normalizedPriceCents)}.
+                          </p>
                         )}
                       </div>
+
+                      {newFlyerData.assetType === "PDF" && (
+                        <div className="md:col-span-2">
+                          <label className="text-gray-300 block mb-1">
+                            Upload Cover Image (required for paid PDF)
+                          </label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) =>
+                              setNewFlyerData({
+                                ...newFlyerData,
+                                cover: e.target.files
+                                  ? e.target.files[0]
+                                  : null,
+                              })
+                            }
+                            className="w-full text-gray-300"
+                            required
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            The cover will be public; the full PDF stays locked
+                            until purchase.
+                          </p>
+                        </div>
+                      )}
                     </div>
+                  )}
+                </div>
+
+                {/* Form Builder (optional) */}
+                <div className="border-t border-gray-700 pt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="flex items-end gap-3">
+                      <h3 className="text-gray-300 font-semibold">
+                        Attach a Form (optional)
+                      </h3>
+                      <input
+                        type="text"
+                        placeholder="Form Name"
+                        value={newFlyerData.form.name}
+                        onChange={(e) =>
+                          setNewFlyerData({
+                            ...newFlyerData,
+                            form: {
+                              ...newFlyerData.form,
+                              name: e.target.value,
+                            },
+                          })
+                        }
+                        className="px-2 py-1 rounded bg-gray-800 text-white border border-gray-700"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddFormField}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm flex items-center gap-1"
+                    >
+                      <Plus size={14} /> Add Field
+                    </button>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left border border-gray-700 text-gray-300">
-                  <thead className="bg-gray-800 text-gray-200">
-                    <tr>
-                      <th className="px-4 py-2">Preview</th>
-                      <th className="px-4 py-2">Title</th>
-                      <th className="px-4 py-2">Description</th>
-                      <th className="px-4 py-2">Type</th>
-                      <th className="px-4 py-2">Size</th>
-                      <th className="px-4 py-2">Created</th>
-                      <th className="px-4 py-2">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.flyers.map((flyer) => (
-                      <tr key={flyer.id} className="border-t border-gray-700 hover:bg-gray-800">
-                        <td className="px-2 py-2">
-                          {flyer.assetType === "IMAGE" && (
-                            <img
-                              src={flyer.cdnUrl || flyer.originalUrl}
-                              alt={flyer.title}
-                              className="w-20 h-12 object-cover rounded"
+
+                  {newFlyerData.form.fields.length === 0 ? (
+                    <p className="text-sm text-gray-500">No fields yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {newFlyerData.form.fields.map((field, idx) => (
+                        <div
+                          key={idx}
+                          className="flex flex-wrap items-center gap-2"
+                        >
+                          <input
+                            type="text"
+                            placeholder="Field Name"
+                            value={field.name}
+                            onChange={(e) => {
+                              const fields = [...newFlyerData.form.fields];
+                              fields[idx].name = e.target.value;
+                              setNewFlyerData({
+                                ...newFlyerData,
+                                form: { ...newFlyerData.form, fields },
+                              });
+                            }}
+                            className="flex-1 min-w-[150px] px-2 py-1 rounded bg-gray-800 text-white border border-gray-700"
+                          />
+                          <select
+                            value={field.type}
+                            onChange={(e) => {
+                              const fields = [...newFlyerData.form.fields];
+                              fields[idx].type = e.target
+                                .value as FlyerFormField["type"];
+                              setNewFlyerData({
+                                ...newFlyerData,
+                                form: { ...newFlyerData.form, fields },
+                              });
+                            }}
+                            className="px-2 py-1 rounded bg-gray-800 text-white border border-gray-700"
+                          >
+                            <option value="text">Text</option>
+                            <option value="number">Number</option>
+                            <option value="email">Email</option>
+                            <option value="textarea">Textarea</option>
+                            <option value="select">Select</option>
+                          </select>
+                          <label className="flex items-center gap-1 text-gray-300">
+                            <input
+                              type="checkbox"
+                              checked={!!field.required}
+                              onChange={(e) => {
+                                const fields = [...newFlyerData.form.fields];
+                                fields[idx].required = e.target.checked;
+                                setNewFlyerData({
+                                  ...newFlyerData,
+                                  form: { ...newFlyerData.form, fields },
+                                });
+                              }}
+                            />
+                            Required
+                          </label>
+                          {field.type === "select" && (
+                            <input
+                              type="text"
+                              placeholder="Options (comma-separated)"
+                              value={(field.options || []).join(",")}
+                              onChange={(e) => {
+                                const fields = [...newFlyerData.form.fields];
+                                const opts = e.target.value
+                                  .split(",")
+                                  .map((s) => s.trim())
+                                  .filter(Boolean);
+                                fields[idx].options = opts;
+                                setNewFlyerData({
+                                  ...newFlyerData,
+                                  form: { ...newFlyerData.form, fields },
+                                });
+                              }}
+                              className="flex-1 min-w-[200px] px-2 py-1 rounded bg-gray-800 text-white border border-gray-700"
                             />
                           )}
-                          {flyer.assetType === "VIDEO" && (
-                            <div className="relative w-20 h-12 bg-gray-700 rounded">
-                              <video
-                                src={flyer.cdnUrl || flyer.originalUrl}
-                                muted
-                                loop
-                                playsInline
-                                className="w-full h-full object-cover rounded"
-                              />
-                              <FaPlay className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white" />
-                            </div>
-                          )}
-                          {flyer.assetType === "PDF" && (
-                            <img
-                              src={pdfThumbnails[flyer.id] || ""}
-                              alt="PDF"
-                              className="w-20 h-12 object-cover rounded"
-                            />
-                          )}
-                        </td>
-                        <td className="px-4 py-2">{flyer.title}</td>
-                        <td className="px-4 py-2">{flyer.description}</td>
-                        <td className="px-4 py-2">{flyer.assetType}</td>
-                        <td className="px-4 py-2">{formatBytes(flyer.sizeBytes)}</td>
-                        <td className="px-4 py-2">{new Date(flyer.createdAt).toLocaleDateString()}</td>
-                        <td className="px-4 py-2 space-x-1">
                           <button
-                            onClick={() => handlePreview(flyer)}
-                            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
+                            type="button"
+                            onClick={() => {
+                              const fields = newFlyerData.form.fields.filter(
+                                (_, i) => i !== idx
+                              );
+                              setNewFlyerData({
+                                ...newFlyerData,
+                                form: { ...newFlyerData.form, fields },
+                              });
+                            }}
+                            className="text-red-300 hover:text-red-200 text-sm"
                           >
-                            Preview
+                            Remove
                           </button>
-                          <button
-                            onClick={() => handleDelete(flyer.id)}
-                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+                >
+                  Upload Flyer
+                </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================
+          Lead Form Modal (existing)
+         ========================= */}
+      <AnimatePresence>
+        {activeFormFlyer && activeFormFlyer.form && (
+          <motion.div
+            key="formModal"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-gray-900 rounded-lg p-6 shadow-xl w-full max-w-md relative max-h-[90vh] overflow-y-auto border border-gray-700"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+            >
+              <button
+                onClick={() => setActiveFormFlyer(null)}
+                className="absolute top-2 right-2 text-gray-300 hover:text-white text-xl font-bold"
+              >
+                &times;
+              </button>
+
+              <h2 className="text-xl font-semibold text-white mb-4">
+                {activeFormFlyer.form.name}
+              </h2>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData: Record<string, any> = {};
+                  activeFormFlyer.form!.fields.forEach((f) => {
+                    const input = e.currentTarget.elements.namedItem(f.name) as
+                      | HTMLInputElement
+                      | HTMLSelectElement
+                      | HTMLTextAreaElement;
+                    formData[f.name] = input?.value ?? "";
+                  });
+                  handleSubmitForm(formData);
+                }}
+                className="space-y-4"
+              >
+                {activeFormFlyer.form.fields.map((field) => {
+                  const baseClass =
+                    "px-3 py-2 rounded bg-gray-800 text-white border border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none";
+                  switch (field.type) {
+                    case "textarea":
+                      return (
+                        <div key={field.name} className="flex flex-col">
+                          <label className="text-gray-200 mb-1">
+                            {field.name} {field.required ? "*" : ""}
+                          </label>
+                          <textarea
+                            name={field.name}
+                            required={field.required}
+                            className={baseClass + " min-h-[60px]"}
+                          />
+                        </div>
+                      );
+                    case "select":
+                      return (
+                        <div key={field.name} className="flex flex-col">
+                          <label className="text-gray-200 mb-1">
+                            {field.name} {field.required ? "*" : ""}
+                          </label>
+                          <select
+                            name={field.name}
+                            required={field.required}
+                            className={baseClass}
                           >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
+                            {(field.options || []).map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    default:
+                      return (
+                        <div key={field.name} className="flex flex-col">
+                          <label className="text-gray-200 mb-1">
+                            {field.name} {field.required ? "*" : ""}
+                          </label>
+                          <input
+                            name={field.name}
+                            type={field.type}
+                            required={field.required}
+                            className={baseClass}
+                          />
+                        </div>
+                      );
+                  }
+                })}
+
+                <button
+                  type="submit"
+                  disabled={formSubmitting}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50"
+                >
+                  {formSubmitting ? "Submitting..." : "Submit"}
+                </button>
+              </form>
+
+              {submissions.length > 0 && (
+                <div className="mt-6 text-gray-300">
+                  <h3 className="text-white font-semibold mb-2">
+                    Previous Submissions
+                  </h3>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {submissions.map((sub, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-gray-800 p-2 rounded text-sm"
+                      >
+                        {activeFormFlyer.form?.fields.map((f) => (
+                          <div key={f.name}>
+                            <span className="font-semibold">{f.name}:</span>{" "}
+                            {sub[f.name]}
+                          </div>
+                        ))}
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        ))
-      )}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -25,9 +25,17 @@ interface Tenant {
   accentColor?: string;
   logoUrl?: string;
   domain?: string;
-  _count?: { users: number }; // optional to avoid runtime errors
+  _count?: { users: number };
 }
 
+// Utility to generate URL-safe slug
+function generateSlug(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
 
 export default function TenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -43,7 +51,6 @@ export default function TenantsPage() {
     domain: "",
   });
 
-  // Fetch tenants
   async function loadTenants() {
     setLoading(true);
     try {
@@ -60,7 +67,6 @@ export default function TenantsPage() {
     loadTenants();
   }, []);
 
-  // Columns for DataGrid
   const columns: GridColDef<Tenant>[] = [
     { field: "name", headerName: "Name", flex: 1 },
     { field: "slug", headerName: "Slug", flex: 1 },
@@ -70,7 +76,6 @@ export default function TenantsPage() {
       headerName: "Users",
       flex: 0.5,
       valueGetter: (params: { row: Tenant }) => params?.row?._count?.users ?? 0,
-
     },
     { field: "domain", headerName: "Domain", flex: 1 },
     {
@@ -81,21 +86,26 @@ export default function TenantsPage() {
     },
   ];
 
-
-
   // Handle create tenant
   async function handleCreateTenant(e: React.FormEvent) {
     e.preventDefault();
-    console.log("Creating tenant:", form);
+
+    const payload = {
+      ...form,
+      slug: generateSlug(form.slug || form.name),
+    };
+
+    console.log("Creating tenant:", payload);
 
     try {
       const res = await fetch("/api/super/tenants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Failed to create tenant");
+
       toast.success("Tenant created successfully");
       setOpenModal(false);
       setForm({
@@ -131,7 +141,6 @@ export default function TenantsPage() {
         />
       </div>
 
-      {/* Create Tenant Modal */}
       <Dialog
         open={openModal}
         onClose={() => setOpenModal(false)}
@@ -151,10 +160,9 @@ export default function TenantsPage() {
             required
           />
           <Input
-            placeholder="Slug"
+            placeholder="Slug (optional)"
             value={form.slug}
             onChange={(e) => setForm({ ...form, slug: e.target.value })}
-            required
           />
 
           <Select
@@ -178,9 +186,7 @@ export default function TenantsPage() {
             <Input
               type="color"
               value={form.primaryColor}
-              onChange={(e) =>
-                setForm({ ...form, primaryColor: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, primaryColor: e.target.value })}
             />
           </div>
 
@@ -189,9 +195,7 @@ export default function TenantsPage() {
             <Input
               type="color"
               value={form.accentColor}
-              onChange={(e) =>
-                setForm({ ...form, accentColor: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, accentColor: e.target.value })}
             />
           </div>
 
@@ -207,11 +211,7 @@ export default function TenantsPage() {
           />
 
           <div className="flex justify-end gap-2 mt-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setOpenModal(false)}
-            >
+            <Button type="button" variant="secondary" onClick={() => setOpenModal(false)}>
               Cancel
             </Button>
             <Button type="submit">Create</Button>

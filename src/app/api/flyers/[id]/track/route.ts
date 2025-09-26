@@ -1,31 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ShortLinkEventKind } from "@prisma/client";
-import { trackUniqueEvent } from "@/lib/analytics";
+import { createHash } from "crypto";
 
 export async function POST(req: NextRequest, context: any) {
-  const { id } = await context.params;
-  const { kind = "VIEW" } = await req.json().catch(() => ({}));
+  const { id: flyerId } = await context.params;
 
-  if (!Object.keys(ShortLinkEventKind).includes(kind))
-    return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
+  try {
+    const flyer = await prisma.flyer.findUnique({
+      where: { id: flyerId },
+      include: { links: true },
+    });
+    if (!flyer) return NextResponse.json({ error: "Flyer not found" }, { status: 404 });
 
-  const flyer = await prisma.flyer.findUnique({
-    where: { id },
-    include: { links: true },
-  });
-  if (!flyer) return NextResponse.json({ error: "Flyer not found" }, { status: 404 });
+    const rawIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const ipHash = createHash("sha256").update(rawIp).digest("hex");
+    const userAgent = req.headers.get("user-agent") ?? "";
+    const referrer = req.headers.get("referer") ?? undefined;
 
-  // use primary link for attribution (first link)
-  const primaryLink = flyer.links[0];
-  if (!primaryLink) return NextResponse.json({ error: "No short link" }, { status: 400 });
+    await Promise.all(
+      flyer.links.map(async (link) => {
+        await prisma.shortLinkEvent.upsert({
+          where: {
+            shortLinkId_kind_ipHash_userAgent: {
+              shortLinkId: link.id,
+              kind: ShortLinkEventKind.VIEW,
+              ipHash,
+              userAgent,
+            },
+          },
+          update: {},
+          create: {
+            tenantId: flyer.tenantId,
+            shortLinkId: link.id,
+            kind: ShortLinkEventKind.VIEW,
+            ipHash,
+            userAgent,
+            referrer,
+          },
+        });
+      })
+    );
 
-  await trackUniqueEvent({
-    tenantId: flyer.tenantId,
-    shortLinkId: primaryLink.id,
-    kind: ShortLinkEventKind[kind as keyof typeof ShortLinkEventKind],
-    req,
-  });
-
-  return NextResponse.json({ ok: true });
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Failed to track flyer view:", err);
+    return NextResponse.json({ error: "Failed to track view" }, { status: 500 });
+  }
 }
