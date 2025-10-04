@@ -413,26 +413,26 @@ model Response {
 //----------PAYMENTS TABLE------///
 
 model Payment {
-  id          String   @id @default(cuid())
-  tenantId    String
-  flyerId     String?  // optional, only if payment is tied to a flyer/ebook
-  accountId   String
-  reference   String   @unique
-  amount      Int
-  currency    String   @default("ZMW")
-  type        String   // COLLECTION | TRANSFER
-  status      String   // PENDING | SUCCESS | FAILED
-  reason      String?
-  recipientId String?
-  provider    String?
-  webhookRaw  Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  completedAt DateTime?
+  id            String   @id @default(cuid())
+  tenantId      String
+  flyerId       String?
+  accountId     String
+  reference     String   @unique
+  amount        Int
+  currency      String   @default("ZMW")
+  type          String
+  status        String
+  reason        String?
+  recipientId   String?
+  provider      String?
+  webhookRaw    Json?
+  purchaseToken String?   // ✅ guest session token
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  completedAt   DateTime?
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
   flyer  Flyer? @relation(fields: [flyerId], references: [id])
-
 }
 
 

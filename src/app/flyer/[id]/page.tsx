@@ -3,34 +3,30 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
+
 type QR = { id: string; imageUrl: string | null };
 type Link = { id: string; slug: string; qr: QR | null };
 type CampaignMeta = { name: string; isPaid: boolean; buyLink: string | null };
-
 type DynamicField = { name: string; type: string; required?: boolean };
-type FlyerForm = {
-  id: string;
-  name: string;
-  fields: DynamicField[];
-};
-
-type FormResponse = {
-  id: string;
-  data: Record<string, string>;
-  createdAt: string;
-};
+type FlyerForm = { id: string; name: string; fields: DynamicField[] };
+type FormResponse = { id: string; data: Record<string, string>; createdAt: string };
 
 type Flyer = {
   id: string;
   title: string;
   description?: string;
-  cdnUrl: string | null;
-  coverUrl?: string | null;
   assetType: "IMAGE" | "VIDEO" | "PDF";
   links: Link[];
   campaign: CampaignMeta;
   form?: FlyerForm;
+  displayUrl?: string | null;
+  coverUrl?: string | null;
+
+  // ✅ Add these fields
+  unlocked: boolean;
+  cdnUrl?: string | null;
 };
+
 
 export default function FlyerViewerPage() {
   const { id } = useParams<{ id: string }>();
@@ -44,7 +40,6 @@ export default function FlyerViewerPage() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [responses, setResponses] = useState<FormResponse[]>([]);
 
-  // Payment form state
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [mobile, setMobile] = useState("");
   const [operator, setOperator] = useState("airtel");
@@ -53,47 +48,48 @@ export default function FlyerViewerPage() {
   const [showOtpForm, setShowOtpForm] = useState(false);
   const [currentPaymentRef, setCurrentPaymentRef] = useState("");
 
-  const shareUrl = useMemo(
-    () => (typeof window !== "undefined" ? window.location.href : ""),
-    []
-  );
+  const shareUrl = useMemo(() => (typeof window !== "undefined" ? window.location.href : ""), []);
+  
 
+  // ------------------- Fetch Flyer & Polling -------------------
   useEffect(() => {
     if (!id) return;
-    (async () => {
+    let intervalId: NodeJS.Timeout;
+
+    const fetchFlyer = async () => {
       try {
         const r = await fetch(`/api/flyers/${id}`);
         if (!r.ok) throw new Error("Failed to fetch flyer");
         const data: Flyer = await r.json();
         setFlyer(data);
-        setIsPaid(!data.campaign.isPaid); // unlock free flyer automatically
+        setIsPaid(data.unlocked);
 
-        if (data.form) {
+        if (data.form && (!formData || Object.keys(formData).length === 0)) {
           const initialForm: Record<string, any> = {};
           data.form.fields.forEach((f) => (initialForm[f.name] = ""));
           setFormData(initialForm);
 
           const resR = await fetch(`/api/forms/${data.form.id}/responses`);
-          if (resR.ok) {
-            const resData: FormResponse[] = await resR.json();
-            setResponses(resData);
-          }
+          if (resR.ok) setResponses(await resR.json());
         }
-
-        // Track view
-        fetch(`/api/flyers/${id}/track`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: "VIEW" }),
-        }).catch(() => {});
-      } catch (e) {
-        console.error(e);
+      } catch (err) {
+        console.error("❌ Failed to load flyer:", err);
       } finally {
-        setLoading(false);
+        setLoading(false); // ✅ Always hide loader
       }
-    })();
-  }, [id]);
+    };
 
+    fetchFlyer();
+
+    intervalId = setInterval(() => {
+      if (!isPaid) fetchFlyer();
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [id, isPaid]);
+
+
+  // ------------------- Form Handlers -------------------
   const handleFormChange = (name: string, value: string) =>
     setFormData((prev) => ({ ...prev, [name]: value }));
 
@@ -114,10 +110,9 @@ export default function FlyerViewerPage() {
     }
   };
 
-  const doShare = async (
-    network: "whatsapp" | "twitter" | "facebook" | "linkedin"
-  ) => {
-    const text = encodeURIComponent(`${flyer?.title ?? "Check this out!"}`);
+  // ------------------- Sharing & Subscribe -------------------
+  const doShare = async (network: "whatsapp" | "twitter" | "facebook" | "linkedin") => {
+    const text = encodeURIComponent(flyer?.title ?? "Check this out!");
     const url = encodeURIComponent(shareUrl);
     const map = {
       whatsapp: `https://api.whatsapp.com/send?text=${text}%20${url}`,
@@ -131,7 +126,7 @@ export default function FlyerViewerPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: "SHARE" }),
-    }).catch(() => {});
+    }).catch(() => { });
   };
 
   const doSubscribe = async () => {
@@ -159,72 +154,64 @@ export default function FlyerViewerPage() {
     }
   };
 
-const doBuy = () => {
-  setShowPaymentForm(true); // open modal instead of prompt()
-};
+  const doBuy = () => setShowPaymentForm(true);
 
-
+  // ------------------- Payment Handlers -------------------
   const submitPaymentForm = async () => {
-  if (!flyer) return;
-  setPaymentLoading(true);
+    if (!flyer) return;
+    setPaymentLoading(true);
 
-  try {
-    // --- Normalize phone ---
-    let phone = mobile.trim();
-    if (phone.startsWith("0")) {
-      phone = "+260" + phone.slice(1);
-    } else if (!phone.startsWith("+")) {
-      phone = "+260" + phone;
-    }
+    try {
+      let phone = mobile.trim();
+      if (phone.startsWith("0")) phone = "+260" + phone.slice(1);
+      else if (!phone.startsWith("+")) phone = "+260" + phone;
 
-    const res = await fetch(`/api/flyers/${flyer.id}/purchase`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone, operator }), // ✅ match backend expectation
-    });
+      const res = await fetch(`/api/flyers/${flyer.id}/purchase`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, operator }),
+      });
 
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData?.error || "Payment initiation failed");
-    }
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData?.error || "Payment initiation failed");
+      }
 
-    const data = await res.json();
-    setCurrentPaymentRef(data.reference);
+      const data = await res.json();
+      setCurrentPaymentRef(data.reference);
 
-    if (data.reference) {
-  const eventSource = new EventSource(`/api/payments/stream?reference=${data.reference}`);
+      // Wait longer for user to respond on mobile
+      await new Promise((resolve) => setTimeout(resolve, 6000));
 
-  eventSource.onmessage = (event) => {
-    const update = JSON.parse(event.data);
-    switch (update.status) {
-      case "SUCCESS":
-        setIsPaid(true);
-        alert("✅ Payment successful!");
-        eventSource.close();
-        break;
-      case "FAILED":
-        alert("❌ Payment failed");
-        eventSource.close();
-        break;
-      case "otp-required":
-        setShowOtpForm(true);
-        break;
-      case "pay-offline":
-        alert("ℹ️ Please authorize on your mobile.");
-        break;
+      const eventSource = new EventSource(`/api/payments/stream?reference=${data.reference}`);
+      eventSource.onmessage = (event) => {
+        const update = JSON.parse(event.data);
+        switch (update.status) {
+          case "SUCCESS":
+            alert("✅ Payment successful!");
+            setIsPaid(true);
+            eventSource.close();
+            break;
+          case "FAILED":
+            alert("❌ Payment failed");
+            eventSource.close();
+            break;
+          case "otp-required":
+            setShowOtpForm(true);
+            break;
+          case "pay-offline":
+            alert("ℹ️ Please authorize on your mobile.");
+            break;
+        }
+      };
+    } catch (e: any) {
+      console.error("Payment error:", e);
+      alert(e.message || "Payment failed. Please try again.");
+    } finally {
+      setPaymentLoading(false);
+      setShowPaymentForm(false);
     }
   };
-}
-
-  } catch (e: any) {
-    console.error("Payment error:", e);
-    alert(e.message || "Payment failed. Please try again.");
-  } finally {
-    setPaymentLoading(false);
-    setShowPaymentForm(false);
-  }
-};
-
 
   const submitOtpForm = async () => {
     try {
@@ -248,19 +235,6 @@ const doBuy = () => {
     }
   };
 
-  const pollPaymentStatus = async (reference: string) => {
-    const statusRes = await fetch(
-      `/api/flyers/${flyer?.id}/purchase/status?reference=${reference}`
-    );
-    const statusData = await statusRes.json();
-    if (statusData.status === "SUCCESS") {
-      setIsPaid(true);
-      alert("Payment successful! Flyer unlocked.");
-    } else {
-      setTimeout(() => pollPaymentStatus(reference), 3000);
-    }
-  };
-
   if (loading)
     return (
       <div className="min-h-screen grid place-items-center bg-neutral-950 text-white">
@@ -277,15 +251,12 @@ const doBuy = () => {
 
   return (
     <div className="min-h-screen bg-neutral-950">
+      {/* Header */}
       <header className="mx-auto max-w-6xl px-4 py-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="size-10 rounded-2xl bg-white/10 grid place-items-center">
-            🅾️
-          </div>
+          <div className="size-10 rounded-2xl bg-white/10 grid place-items-center"></div>
           <div>
-            <h1 className="text-white text-xl font-semibold">
-              {flyer.campaign.name}
-            </h1>
+            <h1 className="text-white text-xl font-semibold">{flyer.campaign.name}</h1>
             <p className="text-white/60 text-sm">{flyer.title}</p>
           </div>
         </div>
@@ -308,53 +279,68 @@ const doBuy = () => {
         </div>
       </header>
 
+      {/* Main Grid */}
       <main className="mx-auto max-w-6xl px-4 pb-16 grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Asset Section */}
+        {/* Asset Preview */}
+        {/* Asset Preview */}
         <section className="md:col-span-2 rounded-3xl bg-white shadow-xl overflow-hidden min-h-[60vh] grid place-items-center p-4">
-          {flyer.campaign.isPaid && !isPaid ? (
-            flyer.coverUrl ? (
-              <img
-                src={flyer.coverUrl}
-                alt="Preview Cover"
-                className="w-full h-full object-contain opacity-90"
-              />
-            ) : (
-              <div className="text-center text-neutral-600">
-                <p>
-                  This is a paid flyer. Please click Buy to unlock full content.
-                </p>
-              </div>
-            )
-          ) : (
+          {flyer.assetType === "IMAGE" && (
+            <img
+              src={flyer.displayUrl ?? flyer.coverUrl ?? undefined}
+              alt={flyer.title}
+              className="w-full h-full object-contain"
+            />
+          )}
+
+          {flyer.assetType === "VIDEO" && (
+            <video
+              src={flyer.displayUrl ?? ""}
+              controls
+              className="w-full h-full object-contain"
+            />
+          )}
+
+          {flyer.assetType === "PDF" && (
             <>
-              {flyer.assetType === "IMAGE" && flyer.cdnUrl && (
-                <img
-                  src={flyer.cdnUrl}
-                  alt={flyer.title}
-                  className="w-full h-full object-contain"
-                />
-              )}
-              {flyer.assetType === "VIDEO" && flyer.cdnUrl && (
-                <video
-                  src={flyer.cdnUrl}
-                  controls
-                  className="w-full h-full object-contain"
-                />
-              )}
-              {flyer.assetType === "PDF" && flyer.cdnUrl && (
-                <iframe
-                  src={flyer.cdnUrl}
-                  className="w-full h-[80vh]"
-                  title="PDF Preview"
-                />
+              {flyer.campaign.isPaid && !isPaid ? (
+                // Locked PDF: show cover
+                flyer.coverUrl ? (
+                  <img
+                    src={flyer.coverUrl}
+                    alt={`${flyer.title} cover`}
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <p className="text-center text-gray-500">
+                    This PDF is for sale. Please buy to preview.
+                  </p>
+                )
+              ) : (
+                // Unlocked PDF: preview inline
+                <>
+                  <iframe
+                    src={`/api/flyers/${flyer.id}/pdf`}
+                    className="w-full h-[80vh]"
+                    title="PDF Preview"
+                  />
+                  {/* Download Button */}
+                  <a
+                    href={`/api/flyers/${flyer.id}/pdf`}
+                    download={`${flyer.title}.pdf`}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 mt-4 inline-block"
+                  >
+                    Download PDF
+                  </a>
+                </>
               )}
             </>
           )}
         </section>
 
-        {/* Right rail */}
+
+        {/* Right Rail */}
         <aside className="space-y-6">
-          {/* QR */}
+          {/* QR Code */}
           {flyer.links[0]?.qr?.imageUrl && (
             <div className="rounded-3xl bg-white shadow-xl p-6 flex flex-col items-center">
               <p className="text-sm text-neutral-600 mb-3">Scan QR</p>
@@ -363,9 +349,7 @@ const doBuy = () => {
                 alt="QR Code"
                 className="w-40 h-40 object-contain"
               />
-              <p className="text-xs text-neutral-500 mt-3 break-all text-center">
-                {shareUrl}
-              </p>
+              <p className="text-xs text-neutral-500 mt-3 break-all text-center">{shareUrl}</p>
             </div>
           )}
 
@@ -375,9 +359,7 @@ const doBuy = () => {
               <h3 className="font-semibold mb-3">{flyer.form.name}</h3>
               {flyer.form.fields.map((f) => (
                 <div key={f.name} className="mb-3">
-                  <label className="block text-sm text-neutral-800 mb-1">
-                    {f.name}
-                  </label>
+                  <label className="block text-sm text-neutral-800 mb-1">{f.name}</label>
                   <input
                     type={f.type}
                     value={formData[f.name] ?? ""}
@@ -424,9 +406,7 @@ const doBuy = () => {
                 <button
                   key={n}
                   onClick={() => setRating(n)}
-                  className={`size-8 rounded-full grid place-items-center border ${
-                    n <= rating ? "bg-yellow-400" : "bg-neutral-100"
-                  }`}
+                  className={`size-8 rounded-full grid place-items-center border ${n <= rating ? "bg-yellow-400" : "bg-neutral-100"}`}
                 >
                   {n}
                 </button>
@@ -448,7 +428,15 @@ const doBuy = () => {
         </aside>
       </main>
 
-      {/* Payment Form Modal */}
+      {/* Payment & OTP Modals */}
+      {paymentLoading && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex flex-col items-center justify-center text-white">
+          <p className="text-lg animate-pulse">
+            Processing payment… Please confirm on your phone
+          </p>
+        </div>
+      )}
+
       {showPaymentForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-[90%] max-w-md">
@@ -471,7 +459,9 @@ const doBuy = () => {
             </select>
             <select
               value={bearer}
-              onChange={(e) => setBearer(e.target.value as "merchant" | "customer")}
+              onChange={(e) =>
+                setBearer(e.target.value as "merchant" | "customer")
+              }
               className="w-full mb-3 rounded-xl border border-neutral-300 px-3 py-2"
             >
               <option value="merchant">Merchant</option>
@@ -496,7 +486,6 @@ const doBuy = () => {
         </div>
       )}
 
-      {/* OTP Modal */}
       {showOtpForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-[90%] max-w-md">

@@ -75,7 +75,6 @@ export default function FlyerDashboard() {
     fetchFlyers();
   }, []);
 
-  console.log("flyers:", flyers);
 
   useEffect(() => {
     const fetchCampaigns = async () => {
@@ -164,65 +163,56 @@ export default function FlyerDashboard() {
     }));
   };
 
-  const normalizedPriceCents = useMemo(() => {
-    const n = Math.round(Number(newFlyerData.price) * 100);
+  const normalizedPrice = useMemo(() => {
+    const n = Math.round(Number(newFlyerData.price));
     return Number.isFinite(n) && n >= 0 ? n : 0;
   }, [newFlyerData.price]);
 
   const handleCreateFlyer = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // --- Validation ---
+    // --- Basic validation ---
     if (!newFlyerData.title.trim()) return alert("Title is required.");
     if (!newFlyerData.file) return alert("Please upload a flyer file.");
     if (!newFlyerData.campaignId) return alert("Please select a campaign.");
 
-    // Normalize price
-    const normalizedPriceCents = newFlyerData.price
-      ? Math.round(parseFloat(newFlyerData.price) * 100)
-      : 0;
+    const isFree = newFlyerData.isFree; // true = free, false = paid
+    const normalizedPrice = newFlyerData.price ? parseFloat(newFlyerData.price) : 0;
 
-    if (newFlyerData.isFree) {
-      if (!newFlyerData.price || normalizedPriceCents <= 0) {
-        return alert("Please enter a valid price.");
-      }
-      if (newFlyerData.assetType === "PDF" && !newFlyerData.cover) {
-        return alert("Please upload a cover image for the paid ebook (PDF).");
-      }
+    // --- Paid flyer validation ---
+    if (!isFree && normalizedPrice <= 0) {
+      return alert("Please enter a valid price for paid flyers.");
+    }
+
+    if (!isFree && newFlyerData.assetType === "PDF" && !newFlyerData.cover) {
+      return alert("Please upload a cover image for paid PDF flyers.");
     }
 
     // --- Prepare FormData ---
     const formData = new FormData();
     formData.append("title", newFlyerData.title);
-    if (newFlyerData.description)
-      formData.append("description", newFlyerData.description);
+    if (newFlyerData.description) formData.append("description", newFlyerData.description);
     formData.append("assetType", newFlyerData.assetType);
     formData.append("file", newFlyerData.file!);
     formData.append("campaignId", newFlyerData.campaignId);
-    formData.append("form", JSON.stringify(newFlyerData.form));
-    formData.append("isFree", newFlyerData.isFree ? "false" : "true");
+    formData.append("isFree", isFree ? "true" : "false");
 
-    if (newFlyerData.isFree) {
-      formData.append("priceCents", String(normalizedPriceCents));
-      if (newFlyerData.cover) {
-        formData.append("cover", newFlyerData.cover); // 🔑 not coverFile
-      }
+    // Append price info if paid
+    if (!isFree) {
+      formData.append("price", normalizedPrice.toString());
+      formData.append("currency", "ZMW");
     }
 
+    // Append cover if exists
+    if (newFlyerData.cover) formData.append("cover", newFlyerData.cover);
+
     try {
-      const res = await fetch("/api/flyers", {
-        method: "POST",
-        body: formData,
-      });
-
-      console.log("Upload response:", formData);
-
+      const res = await fetch("/api/flyers", { method: "POST", body: formData });
       if (!res.ok) throw new Error("Failed to upload flyer");
 
-      const created: Flyer = await res.json();
-      setFlyers((prev) => [created, ...prev]);
+      const created: Flyer[] = await res.json();
+      setFlyers((prev) => [...created, ...prev]);
 
-      // Reset form
       setShowNewFlyerModal(false);
       setNewFlyerData(resetNewFlyerData());
     } catch (err) {
@@ -230,6 +220,8 @@ export default function FlyerDashboard() {
       alert(err instanceof Error ? err.message : "Upload error");
     }
   };
+
+
 
   // --- Helper reset function ---
   const resetNewFlyerData = (): {
@@ -273,14 +265,12 @@ export default function FlyerDashboard() {
         }
       }
       alert(
-        `Mock checkout: charging ${fmtCurrency(flyer.priceCents)} for "${
-          flyer.title
+        `Mock checkout: charging ${fmtCurrency(flyer.priceCents)} for "${flyer.title
         }"`
       );
     } catch {
       alert(
-        `Mock checkout: charging ${fmtCurrency(flyer.priceCents)} for "${
-          flyer.title
+        `Mock checkout: charging ${fmtCurrency(flyer.priceCents)} for "${flyer.title
         }"`
       );
     }
@@ -312,21 +302,19 @@ export default function FlyerDashboard() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setViewMode("grid")}
-              className={`p-2 rounded-lg transition ${
-                viewMode === "grid"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-800 text-gray-300"
-              }`}
+              className={`p-2 rounded-lg transition ${viewMode === "grid"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-800 text-gray-300"
+                }`}
             >
               <Grid size={18} />
             </button>
             <button
               onClick={() => setViewMode("list")}
-              className={`p-2 rounded-lg transition ${
-                viewMode === "list"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-800 text-gray-300"
-              }`}
+              className={`p-2 rounded-lg transition ${viewMode === "list"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-800 text-gray-300"
+                }`}
             >
               <List size={18} />
             </button>
@@ -359,9 +347,8 @@ export default function FlyerDashboard() {
                 <img
                   src={flyer.coverUrl || flyer.cdnUrl}
                   alt={flyer.title}
-                  className={`${
-                    viewMode === "grid" ? "w-full h-40" : "w-32 h-32"
-                  } object-cover rounded-lg mb-4 md:mb-0 md:mr-4`}
+                  className={`${viewMode === "grid" ? "w-full h-40" : "w-32 h-32"
+                    } object-cover rounded-lg mb-4 md:mb-0 md:mr-4`}
                 />
               )}
               <div className="flex flex-col flex-1">
@@ -489,8 +476,8 @@ export default function FlyerDashboard() {
 
               {/* Paywall logic for PDF ebooks */}
               {activeFlyer.assetType === "PDF" &&
-              activeFlyer.isPaid &&
-              !activeFlyer.hasPurchased ? (
+                activeFlyer.isPaid &&
+                !activeFlyer.hasPurchased ? (
                 <div className="space-y-4">
                   {activeFlyer.coverUrl ? (
                     <img
@@ -585,10 +572,7 @@ export default function FlyerDashboard() {
                       type="text"
                       value={newFlyerData.title}
                       onChange={(e) =>
-                        setNewFlyerData({
-                          ...newFlyerData,
-                          title: e.target.value,
-                        })
+                        setNewFlyerData({ ...newFlyerData, title: e.target.value })
                       }
                       className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
                       required
@@ -600,10 +584,7 @@ export default function FlyerDashboard() {
                     <select
                       value={newFlyerData.campaignId}
                       onChange={(e) =>
-                        setNewFlyerData({
-                          ...newFlyerData,
-                          campaignId: e.target.value,
-                        })
+                        setNewFlyerData({ ...newFlyerData, campaignId: e.target.value })
                       }
                       className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
                       required
@@ -618,16 +599,11 @@ export default function FlyerDashboard() {
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="text-gray-300 block mb-1">
-                      Description
-                    </label>
+                    <label className="text-gray-300 block mb-1">Description</label>
                     <textarea
                       value={newFlyerData.description}
                       onChange={(e) =>
-                        setNewFlyerData({
-                          ...newFlyerData,
-                          description: e.target.value,
-                        })
+                        setNewFlyerData({ ...newFlyerData, description: e.target.value })
                       }
                       className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
                       required
@@ -638,16 +614,13 @@ export default function FlyerDashboard() {
                 {/* Asset */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="text-gray-300 block mb-1">
-                      Asset Type
-                    </label>
+                    <label className="text-gray-300 block mb-1">Asset Type</label>
                     <select
                       value={newFlyerData.assetType}
                       onChange={(e) =>
                         setNewFlyerData({
                           ...newFlyerData,
-                          assetType: e.target
-                            .value as typeof newFlyerData.assetType,
+                          assetType: e.target.value as typeof newFlyerData.assetType,
                         })
                       }
                       className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
@@ -659,9 +632,7 @@ export default function FlyerDashboard() {
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="text-gray-300 block mb-1">
-                      Upload File
-                    </label>
+                    <label className="text-gray-300 block mb-1">Upload File</label>
                     <input
                       type="file"
                       accept={acceptFor(newFlyerData.assetType)}
@@ -683,28 +654,20 @@ export default function FlyerDashboard() {
                     <input
                       id="isPaid"
                       type="checkbox"
-                      checked={newFlyerData.isFree}
+                      checked={!newFlyerData.isFree} // Checked if flyer is paid
                       onChange={(e) =>
-                        setNewFlyerData({
-                          ...newFlyerData,
-                          isFree: e.target.checked,
-                        })
+                        setNewFlyerData({ ...newFlyerData, isFree: !e.target.checked })
                       }
                     />
-                    <label
-                      htmlFor="isPaid"
-                      className="text-gray-200 font-medium"
-                    >
+                    <label htmlFor="isPaid" className="text-gray-200 font-medium">
                       This is a paid flyer (ebook)
                     </label>
                   </div>
 
-                  {newFlyerData.isFree && (
+                  {!newFlyerData.isFree && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <label className="text-gray-300 block mb-1">
-                          Price (USD)
-                        </label>
+                        <label className="text-gray-300 block mb-1">Price (ZMW)</label>
                         <input
                           type="number"
                           min="0"
@@ -712,10 +675,7 @@ export default function FlyerDashboard() {
                           inputMode="decimal"
                           value={newFlyerData.price}
                           onChange={(e) =>
-                            setNewFlyerData({
-                              ...newFlyerData,
-                              price: e.target.value,
-                            })
+                            setNewFlyerData({ ...newFlyerData, price: e.target.value })
                           }
                           className="w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700"
                           placeholder="e.g. 9.99"
@@ -723,7 +683,7 @@ export default function FlyerDashboard() {
                         />
                         {newFlyerData.price && (
                           <p className="text-xs text-gray-400 mt-1">
-                            You’ll charge {fmtCurrency(normalizedPriceCents)}.
+                            You’ll charge {fmtCurrency(parseFloat(newFlyerData.price))}.
                           </p>
                         )}
                       </div>
@@ -739,17 +699,14 @@ export default function FlyerDashboard() {
                             onChange={(e) =>
                               setNewFlyerData({
                                 ...newFlyerData,
-                                cover: e.target.files
-                                  ? e.target.files[0]
-                                  : null,
+                                cover: e.target.files ? e.target.files[0] : null,
                               })
                             }
                             className="w-full text-gray-300"
                             required
                           />
                           <p className="text-xs text-gray-500 mt-1">
-                            The cover will be public; the full PDF stays locked
-                            until purchase.
+                            The cover will be public; the full PDF stays locked until purchase.
                           </p>
                         </div>
                       )}
@@ -761,9 +718,7 @@ export default function FlyerDashboard() {
                 <div className="border-t border-gray-700 pt-4">
                   <div className="flex justify-between items-center mb-2">
                     <div className="flex items-end gap-3">
-                      <h3 className="text-gray-300 font-semibold">
-                        Attach a Form (optional)
-                      </h3>
+                      <h3 className="text-gray-300 font-semibold">Attach a Form (optional)</h3>
                       <input
                         type="text"
                         placeholder="Form Name"
@@ -771,10 +726,7 @@ export default function FlyerDashboard() {
                         onChange={(e) =>
                           setNewFlyerData({
                             ...newFlyerData,
-                            form: {
-                              ...newFlyerData.form,
-                              name: e.target.value,
-                            },
+                            form: { ...newFlyerData.form, name: e.target.value },
                           })
                         }
                         className="px-2 py-1 rounded bg-gray-800 text-white border border-gray-700"
@@ -794,10 +746,7 @@ export default function FlyerDashboard() {
                   ) : (
                     <div className="space-y-2">
                       {newFlyerData.form.fields.map((field, idx) => (
-                        <div
-                          key={idx}
-                          className="flex flex-wrap items-center gap-2"
-                        >
+                        <div key={idx} className="flex flex-wrap items-center gap-2">
                           <input
                             type="text"
                             placeholder="Field Name"
@@ -816,8 +765,7 @@ export default function FlyerDashboard() {
                             value={field.type}
                             onChange={(e) => {
                               const fields = [...newFlyerData.form.fields];
-                              fields[idx].type = e.target
-                                .value as FlyerFormField["type"];
+                              fields[idx].type = e.target.value as FlyerFormField["type"];
                               setNewFlyerData({
                                 ...newFlyerData,
                                 form: { ...newFlyerData.form, fields },
@@ -869,9 +817,7 @@ export default function FlyerDashboard() {
                           <button
                             type="button"
                             onClick={() => {
-                              const fields = newFlyerData.form.fields.filter(
-                                (_, i) => i !== idx
-                              );
+                              const fields = newFlyerData.form.fields.filter((_, i) => i !== idx);
                               setNewFlyerData({
                                 ...newFlyerData,
                                 form: { ...newFlyerData.form, fields },
@@ -894,6 +840,7 @@ export default function FlyerDashboard() {
                   Upload Flyer
                 </button>
               </form>
+
             </motion.div>
           </motion.div>
         )}

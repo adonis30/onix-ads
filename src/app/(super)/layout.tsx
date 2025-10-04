@@ -26,6 +26,7 @@ const navLinks = [
 /*   { href: "/projects", label: "Projects", icon: ChartBarIcon }, */
   { href: "/admin-campaigns", label: "Campaigns", icon: ChartBarIcon },
   { href: "/admin-flyers", label: "Flyers", icon: ChartBarIcon },
+  { href: "/admin-forms", label: "Forms", icon: ChartBarIcon },
   { href: "/admin-teams", label: "Teams", icon: UsersIcon },
 ];
 
@@ -85,7 +86,7 @@ export default function SuperDashboardLayout({
         {/* Logo + App Name */}
         <div className="flex items-center gap-2 mb-8">
           <img
-            src="/logo.svg"
+            src="/logo.png"
             alt="App Logo"
             className="h-8 w-8 rounded-md"
           />

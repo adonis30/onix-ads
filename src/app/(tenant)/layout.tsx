@@ -30,6 +30,7 @@ const navLinks = [
   { href: "/projects", label: "Projects", icon: FolderIcon, roles: ["SUPER_ADMIN", "TENANT_ADMIN", "EDITOR"] },
   { href: "/campaigns", label: "Campaigns", icon: FolderIcon, roles: ["SUPER_ADMIN", "TENANT_ADMIN", "EDITOR"] },
   { href: "/flyers", label: "Flyers", icon: FolderIcon, roles: ["SUPER_ADMIN", "TENANT_ADMIN", "EDITOR"] },
+  { href: "/forms", label: "Forms", icon: FolderIcon, roles: ["SUPER_ADMIN", "TENANT_ADMIN", "EDITOR"] },
   { href: "/teams", label: "Teams", icon: UserGroupIcon, roles: ["SUPER_ADMIN", "TENANT_ADMIN"] },
   { href: "/settings", label: "Settings", icon: Cog6ToothIcon, roles: ["SUPER_ADMIN", "TENANT_ADMIN"] },
   { href: "/notifications", label: "Notifications", icon: BellIcon, roles: ["SUPER_ADMIN", "TENANT_ADMIN", "EDITOR", "VIEWER"] },

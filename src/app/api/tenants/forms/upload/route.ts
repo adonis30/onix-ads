@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     const slug = `form-${nanoid(6)}`;
 
     // Base URL
-    const baseUrl = process.env.APP_URL || "https://yourdomain.com";
+    const baseUrl = process.env.APP_URL || "https://mydomain.com";
     const formUrl = `${baseUrl}/f/${slug}`;
 
     // Generate QR Code (Base64)

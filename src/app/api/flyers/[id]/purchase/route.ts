@@ -3,26 +3,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { lenco } from "@/lib/lencoClient";
 import { redisPublisher } from "@/lib/redis";
+import { randomUUID } from "crypto";
 
-export async function POST(
-  req: NextRequest,
-  context: any 
-) {
+export async function POST(req: NextRequest, context: any) {
   try {
-    const flyerId = await context.params.id;
+    const flyerId = context.params.id;
     const { phone, operator } = await req.json();
 
     const flyer = await prisma.flyer.findUnique({ where: { id: flyerId } });
-    if (!flyer)
-      return NextResponse.json({ error: "Flyer not found" }, { status: 404 });
+    if (!flyer) return NextResponse.json({ error: "Flyer not found" }, { status: 404 });
 
-    // sanitize reference: only alphanumerics, ., _, -
-    const reference = `flyer_${flyerId}_${Date.now()}`.replace(
-      /[^a-zA-Z0-9._-]/g,
-      "_"
-    );
+    // sanitize reference
+    const reference = `flyer_${flyerId}_${Date.now()}`.replace(/[^a-zA-Z0-9._-]/g, "_");
 
-    // ensure amount is number
     const amount = flyer.priceCents ?? 0;
 
     // send collection request to Lenco
@@ -30,7 +23,7 @@ export async function POST(
     try {
       paymentData = await lenco.createTransfer({
         amount,
-        phone,                  // Lenco field
+        phone,
         operator: operator.toLowerCase(),
         reason: flyer.title,
         reference,
@@ -44,6 +37,9 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // ✅ Generate guest purchaseToken
+    const purchaseToken = randomUUID();
 
     // store payment in DB
     await prisma.payment.create({
@@ -60,6 +56,7 @@ export async function POST(
         recipientId: phone,
         provider: operator,
         webhookRaw: paymentData,
+        purchaseToken, // ✅ save token for guest
       },
     });
 
@@ -69,10 +66,23 @@ export async function POST(
       JSON.stringify({ status: "PENDING" })
     );
 
-    return NextResponse.json({
+    // ✅ Set purchaseToken as httpOnly cookie for 7 days
+    const response = NextResponse.json({
       reference,
       paymentData: paymentData.data,
     });
+
+    response.cookies.set({
+      name: "purchaseToken",
+      value: purchaseToken,
+      httpOnly: true,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+
+    return response;
   } catch (err: any) {
     console.error("Purchase route error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
