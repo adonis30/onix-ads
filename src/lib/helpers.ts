@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from "uuid";
+
 /** =========================
  * Helpers
  * ========================*/
@@ -12,3 +14,7 @@ export const acceptFor = (assetType: "IMAGE" | "VIDEO" | "PDF") =>
     : assetType === "VIDEO"
     ? "video/*"
     : "application/pdf";
+
+export const generateUniqueId = () => {
+  return uuidv4().replace(/-/g, "").substring(0, 25);
+};

@@ -85,7 +85,7 @@ model Tenant {
   subscriptions   Subscription[]
   subscribers     Subscriber[]
   feedbacks       Feedback[]
-
+  notifications   Notification[]
 
   // Back-relation for optional tenant in User
   users User[] @relation("TenantUsers")
@@ -390,24 +390,154 @@ model ShortLinkHistory {
 }
 
 model DynamicForm {
-  id         String      @id @default(cuid())
-  name       String
-  tenantId   String
-  tenant     Tenant      @relation(fields: [tenantId], references: [id])
-  slug       String      @unique
-  fields     Json
-  createdAt  DateTime    @default(now())
-  responses  Response[]
+  id           String      @id @default(cuid())
+  name         String
+  description  String?
+  tenantId     String
+  tenant       Tenant      @relation(fields: [tenantId], references: [id])
+  slug         String      @unique
   
-  shortLinks ShortLink[] // ✅ one-to-many
+  // Form Schema (JSON)
+  schema       Json?       // Complete form definition with fields, layouts, logic
+  
+  // Version Control
+  version      Int         @default(1)
+  isLatest     Boolean     @default(true)
+  parentId     String?     // Reference to original form for versions
+  
+  // Metadata
+  visits       Int         @default(0)
+  submissions  Int         @default(0)
+  published    Boolean     @default(false)
+  
+  // AI & Templates
+  isTemplate   Boolean     @default(false)
+  templateCategory String?
+  aiGenerated  Boolean     @default(false)
+  aiPrompt     String?     // Original AI prompt used
+  
+  // Access Control
+  createdBy    String      @default("system")
+  updatedBy    String?
+  
+  // Timestamps
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  publishedAt  DateTime?
+  
+  // Relations
+  responses    Response[]
+  versions     FormVersion[]
+  auditLogs    FormAuditLog[]
+  collaborators FormCollaborator[]
+  settings     FormSettings? @relation(fields: [settingsId], references: [id])
+  settingsId   String?
+  shortLinks   ShortLink[]
+  
+  @@unique([name, tenantId])
+  @@index([tenantId, published])
+  @@index([tenantId, isTemplate])
+  @@index([slug])
+}
+
+
+model FormSettings {
+  id               String        @id @default(cuid())
+  primaryColor     String        @default("#3b82f6")
+  backgroundColor  String        @default("#ffffff")
+  fontFamily       String        @default("Inter")
+  borderRadius     Int           @default(8)
+  spacing          Int           @default(16)
+  theme            Json?         // Custom theme JSON
+  customCss        String?       // Custom CSS
+  logo             String?       // Logo URL
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  dynamicForm      DynamicForm[]      
 }
 
 model Response {
   id          String      @id @default(cuid())
   formId      String
   data        Json
+  metadata    Json?       // IP, user agent, etc.
   createdAt   DateTime    @default(now())
   dynamicForm DynamicForm @relation(fields: [formId], references: [id])
+  
+  @@index([formId])
+}
+
+// ------------------ FORM VERSIONING ------------------
+model FormVersion {
+  id           String      @id @default(cuid())
+  formId       String
+  version      Int
+  schema       Json
+  changeLog    String?
+  createdBy    String
+  createdAt    DateTime    @default(now())
+  
+  form         DynamicForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  
+  @@unique([formId, version])
+  @@index([formId])
+}
+
+// ------------------ FORM AUDIT LOG ------------------
+enum FormAuditAction {
+  CREATED
+  UPDATED
+  PUBLISHED
+  UNPUBLISHED
+  DELETED
+  CLONED
+  VERSION_CREATED
+  SETTINGS_CHANGED
+  FIELD_ADDED
+  FIELD_REMOVED
+  FIELD_UPDATED
+  LAYOUT_CHANGED
+}
+
+model FormAuditLog {
+  id          String          @id @default(cuid())
+  formId      String
+  action      FormAuditAction
+  userId      String
+  userName    String?
+  changes     Json?           // Detailed change information
+  metadata    Json?           // Additional context
+  createdAt   DateTime        @default(now())
+  
+  form        DynamicForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  
+  @@index([formId, createdAt])
+  @@index([userId])
+}
+
+// ------------------ FORM COLLABORATION ------------------
+enum CollaboratorRole {
+  OWNER
+  EDITOR
+  VIEWER
+  COMMENTER
+}
+
+model FormCollaborator {
+  id          String           @id @default(cuid())
+  formId      String
+  userId      String
+  role        CollaboratorRole
+  invitedBy   String
+  invitedAt   DateTime         @default(now())
+  lastActive  DateTime?
+  
+  form        DynamicForm      @relation(fields: [formId], references: [id], onDelete: Cascade)
+  
+  @@unique([formId, userId])
+  @@index([formId])
+  @@index([userId])
 }
 
 //----------PAYMENTS TABLE------///
@@ -435,4 +565,27 @@ model Payment {
   flyer  Flyer? @relation(fields: [flyerId], references: [id])
 }
 
+// ------------------ NOTIFICATIONS ------------------
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  tenantId  String
+  title     String
+  message   String
+  type      NotificationType @default(INFO)
+  read      Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, read])
+}
 

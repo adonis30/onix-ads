@@ -1,3 +1,4 @@
+// src/lib/auth.ts
 import { NextRequest } from "next/server";
 
 export function requireRole(req: NextRequest, allowedRoles: string[]) {
@@ -7,7 +8,6 @@ export function requireRole(req: NextRequest, allowedRoles: string[]) {
   if (!tenantId) throw new Error("Tenant ID required");
   if (!role || !allowedRoles.includes(role)) throw new Error("Unauthorized");
 
-  console.log(`Role: ${role}, Tenant ID: ${tenantId}`);
-
+ // console.log(`[Auth] Role: ${role}, Tenant: ${tenantId}`);
   return { role, tenantId };
 }

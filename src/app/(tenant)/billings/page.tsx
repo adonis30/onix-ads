@@ -1,68 +1,92 @@
-// src/app/(tenant)/billing/page.tsx
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
-type Invoice = {
-  id: string;
-  subscriptionId: string;
-  plan: string;
-  status: string;
-  startDate: string;
-  endDate?: string | null;
-  createdAt: string;
-};
-
-export default function BillingPage({ params }: { params?: any }) {
-  const tenantId = /* get tenant id via session or props */ (window as any).__TENANT_ID__ || "";
-
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+export default function BillingPage() {
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!tenantId) return;
-    fetch(`/api/billing/invoices?tenantId=${tenantId}`)
-      .then((r) => r.json())
-      .then(setInvoices)
-      .catch(console.error)
+    fetch('/api/tenants/billing')
+      .then((res) => res.json())
+      .then(setData)
       .finally(() => setLoading(false));
-  }, [tenantId]);
+  }, []);
 
-  async function cancel(subId: string) {
-    if (!confirm("Cancel this subscription?")) return;
-    await fetch("/api/billing/cancel", {
-      method: "POST",
-      body: JSON.stringify({ subscriptionId: subId, tenantId }),
-      headers: { "Content-Type": "application/json" },
+  const handleUpgrade = async (plan: string) => {
+    await fetch('/api/tenants/billing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan }),
     });
-    // refresh
-    setLoading(true);
-    const r = await fetch(`/api/billing/invoices?tenantId=${tenantId}`);
-    setInvoices(await r.json());
-    setLoading(false);
-  }
+    window.location.reload();
+  };
 
-  if (loading) return <div>Loading invoices…</div>;
+  if (loading) return <div className="p-6">Loading...</div>;
+
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Billing & Invoices</h2>
-      <div className="space-y-4">
-        {invoices.length === 0 && <div>No invoices yet.</div>}
-        {invoices.map((inv) => (
-          <div key={inv.id} className="bg-white p-4 rounded shadow flex justify-between items-center">
-            <div>
-              <div className="font-medium">{inv.plan}</div>
-              <div className="text-sm text-gray-500">Status: {inv.status}</div>
-              <div className="text-sm text-gray-500">Date: {new Date(inv.createdAt).toLocaleString()}</div>
-            </div>
-            <div>
-              {inv.status !== "CANCELED" && (
-                <button onClick={() => cancel(inv.subscriptionId)} className="px-3 py-1 bg-red-600 text-white rounded">Cancel</button>
-              )}
-            </div>
+    <div className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold">Billing & Subscription</h1>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Current Plan</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold mb-4">{data?.currentPlan}</div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {['FREE', 'STARTUP', 'PRO', 'ENTERPRISE'].map((plan) => (
+              <Card key={plan} className={data?.currentPlan === plan ? 'border-blue-500' : ''}>
+                <CardContent className="p-4">
+                  <h3 className="font-bold mb-2">{plan}</h3>
+                  <Button
+                    onClick={() => handleUpgrade(plan)}
+                    disabled={data?.currentPlan === plan}
+                    className="w-full"
+                  >
+                    {data?.currentPlan === plan ? 'Current' : 'Upgrade'}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
           </div>
-        ))}
-      </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Payment History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {data?.paymentHistory?.map((payment: any) => (
+              <div key={payment.id} className="flex justify-between items-center border-b pb-2">
+                <div>
+                  <p className="font-medium">{payment.type}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {new Date(payment.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-medium">
+                    {payment.currency} ${(payment.amount / 100).toFixed(2)}
+                  </p>
+                  <span
+                    className={`text-xs px-2 py-1 rounded ${
+                      payment.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                    }`}
+                  >
+                    {payment.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import CreateUserForm from "./components/createUserForm";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api";
 import { User as UserIcon, Mail, Shield, Trash2, Loader2, UserPlus } from "lucide-react";
+import { c } from "framer-motion/dist/types.d-Cjd591yU";
 
 interface User {
   id: string;
@@ -27,6 +28,7 @@ export default function UsersPage() {
     try {
       const res = await apiFetch("/api/tenants/users", { method: "GET" }, session);
       const data = await res.json();
+      console.log("Fetched users:", data);
       setUsers(data);
     } catch (err) {
       console.error(err);
@@ -35,6 +37,10 @@ export default function UsersPage() {
       setLoading(false);
     }
   };
+  console.log("Current session in UsersPage:", session);
+  console.log("Tenant ID:", tenantId);
+  console.log("User Role:", userRole);
+
 
   useEffect(() => {
     if (status === "authenticated") {
